@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>need your location</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>need your location</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>need your location</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict/>
+	</array>
+	<key>MBXAccessToken</key>
+	<string>pk.eyJ1Ijoic3ViYnVzIiwiYSI6ImNtNW05MXo4czIwZTgyaXByaXcyeG9kZ2wifQ.cNkB7-LW8-jYaZGn8CygXw</string>
+</dict>
+</plist>
