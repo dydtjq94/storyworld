@@ -23,8 +23,9 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
        
        override func viewDidLoad() {
            super.viewDidLoad()
-           setupLocationManager()
            setupMapView()
+           setupLocationManager()
+           
        }
     
     // MARK: - MapView 설정
@@ -44,14 +45,41 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         mapView = MapView(frame: view.bounds, mapInitOptions: mapInitOptions)
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         
+        // ✅사용자 위치 표시 설정
+        configureUserLocationDisplay()
+        
         // ✅ MovieController 초기화
         movieController = MovieController(mapView: mapView)
+
+        // ✅ 스타일 로드 핸들링
+        handleStyleLoadedEvent()
         
+        // ✅ MapView를 뷰에 추가
+        view.addSubview(mapView)
+    }
+    
+    private func configureUserLocationDisplay() {
         // ✅ 사용자 위치 표시 (화살표 포함)
         mapView.location.options.puckType = .puck2D(Puck2DConfiguration.makeDefault(showBearing: true))
         mapView.location.options.puckBearingEnabled = true
         mapView.location.options.puckBearing = .heading
-        
+        print("✅ 사용자 위치 표시 설정 완료")
+    }
+    
+    private func reloadLocationPuck() {
+        // 현재 Puck을 비활성화
+        mapView.location.options.puckType = nil
+        print("✅ Puck 비활성화 완료")
+
+        // Puck 다시 활성화 (레이어 재배치)
+        mapView.location.options.puckType = .puck2D(Puck2DConfiguration.makeDefault(showBearing: true))
+        mapView.location.options.puckBearingEnabled = true
+        mapView.location.options.puckBearing = .heading
+        print("✅ Puck 다시 활성화 완료")
+    }
+
+    
+    private func handleStyleLoadedEvent() {
         mapView.mapboxMap.onNext(event: .styleLoaded) { [weak self] _ in
             guard let self = self else { return }
 
@@ -73,16 +101,15 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
                 } else {
                     print("⚠️ MovieController가 초기화되지 않았습니다.")
                 }
+                
+                reloadLocationPuck()
+                
             } catch {
                 print("❌ 예외 발생: \(error.localizedDescription)")
             }
         }
-        
-        
-        // ✅ MapView를 뷰에 추가
-        view.addSubview(mapView)
     }
-    
+
     private func removeUnwantedLayers() {
         let unwantedLayers = [
             "poi-label",        // POI 라벨 제거
@@ -132,7 +159,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
     private var isInitialCameraSet = false
     
     private var lastUpdatedLocation: CLLocation?
-    private let minimumDistanceThreshold: CLLocationDistance = 10 // 10m 이상 이동 시 업데이트
+    private let minimumDistanceThreshold: CLLocationDistance = 5 // 10m 이상 이동 시 업데이트
 
     private func setupLocationManager() {
         locationManager.delegate = self
