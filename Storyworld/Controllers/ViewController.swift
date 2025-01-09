@@ -12,18 +12,20 @@ import Turf
 
 final class ViewController: UIViewController, CLLocationManagerDelegate {
     private var mapView: MapView!
-    private let locationManager = CLLocationManager()
-    
-    private var sourceId = "circle-source"
-    private var smallCircleLayerId = "small-circle-layer"
-    private var largeCircleLayerId = "large-circle-layer"
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        
-        setupLocationManager()
-        setupMapView()
-    }
+       private let locationManager = CLLocationManager()
+       
+       private var sourceId = "circle-source"
+       private var smallCircleLayerId = "small-circle-layer"
+       private var largeCircleLayerId = "large-circle-layer"
+       
+       private var movieController: MovieController?
+       private var isMovieDataLoaded = false // 영화 데이터 로드 여부 추가
+       
+       override func viewDidLoad() {
+           super.viewDidLoad()
+           setupLocationManager()
+           setupMapView()
+       }
     
     // MARK: - MapView 설정
     private func setupMapView() {
@@ -42,38 +44,40 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         mapView = MapView(frame: view.bounds, mapInitOptions: mapInitOptions)
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         
+        // ✅ MovieController 초기화
+        movieController = MovieController(mapView: mapView)
+        
         // ✅ 사용자 위치 표시 (화살표 포함)
         mapView.location.options.puckType = .puck2D(Puck2DConfiguration.makeDefault(showBearing: true))
         mapView.location.options.puckBearingEnabled = true
         mapView.location.options.puckBearing = .heading
         
-        // ✅ 스타일 로드 후 초기 카메라 설정
         mapView.mapboxMap.onNext(event: .styleLoaded) { [weak self] _ in
             guard let self = self else { return }
-            
-            if let initialCoordinate = self.mapView.location.latestLocation?.coordinate {
-                self.setInitialCamera(to: initialCoordinate)
-                self.addCircleLayers(at: initialCoordinate)
-                print("🛠️ MapView 스타일 로드 완료, 초기 위치로 카메라 이동 및 원 추가")
-            } else {
-                print("❌ 초기 위치를 찾을 수 없습니다. 기본 위치로 이동합니다.")
-                let defaultCoordinate = CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780) // 서울
-                self.setInitialCamera(to: defaultCoordinate)
-                self.addCircleLayers(at: defaultCoordinate)
+
+            do {
+                // 사용자 위치 가져오기
+                let coordinate = self.mapView.location.latestLocation?.coordinate
+                    ?? CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780) // 기본 위치: 서울
+
+                // 초기 카메라 설정
+                self.setInitialCamera(to: coordinate)
+                print("🛠️ 스타일 로드 완료, 초기 카메라 설정 - \(coordinate.latitude), \(coordinate.longitude)")
+
+                // 원 추가
+                try self.addCircleLayers(at: coordinate)
+
+                // 영화 데이터 로드 및 지도에 추가
+                if let movieController = self.movieController {
+                    movieController.loadMovies(around: coordinate) // 🎬 영화 데이터 로드
+                } else {
+                    print("⚠️ MovieController가 초기화되지 않았습니다.")
+                }
+            } catch {
+                print("❌ 예외 발생: \(error.localizedDescription)")
             }
         }
         
-        // ✅ 스타일 로드 후 원 추가
-        mapView.mapboxMap.onNext(event: .styleLoaded) { [weak self] _ in
-            guard let self = self else { return }
-            
-            if let initialCoordinate = self.mapView.location.latestLocation?.coordinate {
-                self.mapView.mapboxMap.setCamera(to: CameraOptions(center: initialCoordinate, zoom: 15.0))
-                print("🛠️ 초기 카메라 설정 완료 - \(initialCoordinate.latitude), \(initialCoordinate.longitude)")
-            }
-            
-            self.addCircleLayers(at: self.mapView.location.latestLocation?.coordinate ?? CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780))
-        }
         
         // ✅ MapView를 뷰에 추가
         view.addSubview(mapView)
@@ -111,11 +115,18 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         }
     }
     
+//    private func setInitialCamera(to coordinate: CLLocationCoordinate2D) {
+//        let cameraOptions = CameraOptions(center: coordinate, zoom: 15.0)
+//        mapView.mapboxMap.setCamera(to: cameraOptions)
+//        print("📍 초기 카메라가 사용자 위치로 설정되었습니다.")
+//    }
+    
     private func setInitialCamera(to coordinate: CLLocationCoordinate2D) {
         let cameraOptions = CameraOptions(center: coordinate, zoom: 15.0)
-        mapView.mapboxMap.setCamera(to: cameraOptions)
+        mapView.camera.fly(to: cameraOptions, duration: 1.0) // 2초 동안 부드럽게 이동
         print("📍 초기 카메라가 사용자 위치로 설정되었습니다.")
     }
+
     
     // MARK: - 사용자 위치 업데이트
     private var isInitialCameraSet = false
@@ -135,6 +146,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         guard let userLocation = locations.last else { return }
         
         if !isInitialCameraSet {
+            // 초기 카메라 설정 및 원 추가
             setInitialCamera(to: userLocation.coordinate)
             addCircleLayers(at: userLocation.coordinate)
             isInitialCameraSet = true
@@ -149,7 +161,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             print("📏 이동 거리: \(String(format: "%.2f", distance))m")
             
             if distance < minimumDistanceThreshold {
-                print("⚠️ 위치 변화가 미미함 (\(String(format: "%.2f", distance))m), 업데이트 생략")
+                print("⚠️ 위치 변화가 미미함, 업데이트 생략")
                 return
             }
         }
@@ -196,7 +208,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             if !mapView.mapboxMap.style.sourceExists(withId: smallCircleSourceId) {
                 try mapView.mapboxMap.style.addSource(smallCircleSource)
             }
-            
+        
             var smallCircleLayer = FillLayer(id: "small-circle-layer", source: smallCircleSourceId)
             smallCircleLayer.fillColor = .constant(StyleColor(UIColor.systemBlue.withAlphaComponent(0.2)))
             smallCircleLayer.fillOutlineColor = .constant(StyleColor(UIColor.systemBlue))
@@ -204,7 +216,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             if !mapView.mapboxMap.style.layerExists(withId: "small-circle-layer") {
                 try mapView.mapboxMap.style.addLayer(smallCircleLayer)
             }
-            
+       
             // 큰 원 (200m)
             let largeCircleSourceId = "large-circle-source"
             var largeCircleSource = GeoJSONSource(id: largeCircleSourceId)
@@ -213,7 +225,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             if !mapView.mapboxMap.style.sourceExists(withId: largeCircleSourceId) {
                 try mapView.mapboxMap.style.addSource(largeCircleSource)
             }
-            
+        
             var largeCircleLayer = FillLayer(id: "large-circle-layer", source: largeCircleSourceId)
             largeCircleLayer.fillColor = .constant(StyleColor(UIColor.systemGreen.withAlphaComponent(0.2)))
             largeCircleLayer.fillOutlineColor = .constant(StyleColor(UIColor.systemGreen))
@@ -223,6 +235,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             }
             
             print("✅ 원이 성공적으로 추가되었습니다.")
+            
         } catch {
             print("❌ 원 추가 실패: \(error.localizedDescription)")
         }
@@ -253,4 +266,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             print("❌ 원 위치 업데이트 실패: \(error.localizedDescription)")
         }
     }
+    
+    
+    
 }
