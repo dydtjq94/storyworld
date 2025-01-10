@@ -34,4 +34,28 @@ extension UserDefaults {
         }
         return Date().timeIntervalSince(lastUpdated) > expirationInterval
     }
+    
+    func removeMovie(byId id: Int) {
+        var movies = loadMovies() ?? []
+        movies.removeAll { $0.id == id }
+        saveMovies(movies)
+    }
+
+    func clearMovies() {
+        removeObject(forKey: Keys.movies)
+        removeObject(forKey: Keys.lastUpdated)
+    }
+    
+    func getObject<T: Decodable>(forKey key: String, as type: T.Type) -> T? {
+        guard let data = data(forKey: key) else { return nil }
+        let decoder = JSONDecoder()
+        return try? decoder.decode(type, from: data)
+    }
+
+    func setObject<T: Encodable>(_ object: T, forKey key: String) {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(object) {
+            set(data, forKey: key)
+        }
+    }
 }

@@ -12,7 +12,8 @@ final class MovieService {
     private let userDefaults = UserDefaults.standard
     private let expirationInterval: TimeInterval = 6 * 60 * 60 // 6시간
     private let tmdbService = TMDbService(apiKey: Bundle.main.object(forInfoDictionaryKey: "TMDB_API_KEY") as! String)
-    private let maxCircleCount = 30 // 지도에 표시할 최대 Circle 개수
+    private let maxCircleCount = 200 // 지도에 표시할 최대 Circle 개수
+    private let maxRadiusMap = 1500 // 지도에 표시할 최대 반경
     
     struct CircleData: Codable {
         let genre: MovieGenre
@@ -49,6 +50,7 @@ final class MovieService {
     
     /// 장르와 Rarity 조합을 반환 (캐싱 포함)
     func getCircleData(userLocation: CLLocationCoordinate2D, completion: @escaping ([CircleData]) -> Void) {
+        // 캐시 확인 및 반환
         if let cachedCircles = getCachedCircleData(), !isCacheExpired() {
             print("✅ 캐싱된 Circle 데이터를 반환합니다.")
             completion(cachedCircles)
@@ -56,35 +58,70 @@ final class MovieService {
         }
 
         print("🆕 새로운 Circle 데이터를 생성합니다.")
+
+        // 장르 리스트
         let genres: [MovieGenre] = [
             .actionAdventure, .animation, .comedy,
             .horrorThriller, .documentaryWar,
             .sciFiFantasy, .drama, .romance
         ]
-        let rarities: [Rarity] = [.common, .uncommon, .rare, .epic]
+        
+        // 희귀도 확률 설정
+        let rarityProbabilities: [(Rarity, Double)] = [
+            (.common, 0.6),
+            (.uncommon, 0.3),
+            (.rare, 0.099),
+            (.epic, 0.001)
+        ]
 
         var circleData: [CircleData] = []
 
-        for genre in genres {
-            for rarity in rarities {
-                guard let randomLocation = randomCoordinate(around: userLocation, radius: 500) else {
-                    continue
-                }
-                circleData.append(CircleData(genre: genre, rarity: rarity, location: randomLocation))
-            }
+        // 최대 Circle 개수 기반으로 데이터 생성
+        for _ in 0..<maxCircleCount {
+            // 랜덤 장르 선택
+            guard let randomGenre = genres.randomElement() else { continue }
+
+            // 랜덤 희귀도 선택 (확률 기반)
+            let randomRarity = randomRarityBasedOnProbability(rarityProbabilities)
+
+            // 랜덤 좌표 생성
+            guard let randomLocation = randomCoordinate(around: userLocation, radius: Double(maxRadiusMap)) else { continue }
+
+            // CircleData 생성
+            circleData.append(CircleData(genre: randomGenre, rarity: randomRarity, location: randomLocation))
         }
 
-        let finalCircles = Array(circleData.shuffled().prefix(maxCircleCount))
-        cacheCircleData(finalCircles)
-        completion(finalCircles)
+        // 생성된 데이터를 캐시에 저장
+        cacheCircleData(circleData)
+
+        // 결과 반환
+        completion(circleData)
     }
+
+    // 확률 기반으로 희귀도 선택
+    private func randomRarityBasedOnProbability(_ probabilities: [(Rarity, Double)]) -> Rarity {
+        let totalProbability = probabilities.reduce(0) { $0 + $1.1 }
+        let randomValue = Double.random(in: 0...totalProbability)
+        
+        var cumulativeProbability: Double = 0
+        for (rarity, probability) in probabilities {
+            cumulativeProbability += probability
+            if randomValue <= cumulativeProbability {
+                return rarity
+            }
+        }
+        
+        // 기본값 반환 (논리적으로 이곳에 도달하지 않음)
+        return .common
+    }
+
     
     /// TMDb에서 특정 장르와 Rarity에 따른 영화 데이터 가져오기
     func fetchMovies(for genre: MovieGenre, rarity: Rarity, completion: @escaping (Result<[Movie], Error>) -> Void) {
        let genreIds = mapGenreToGenreIds(genre)
-       tmdbService.fetchMoviesByGenres(genreIds: genreIds) { result in
+        tmdbService.fetchMoviesByGenres(genreIds: genreIds, page: Int.random(in: 1...500)) { result in
            switch result {
-           case .success(let tmdbMovies):
+           case .success(let (tmdbMovies, _)):
                let movies = tmdbMovies.compactMap { tmdbMovie -> Movie? in
                    guard let randomLocation = self.randomCoordinate(
                        around: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780), // 서울 중심
@@ -94,10 +131,12 @@ final class MovieService {
                    }
 
                    return Movie(
-                       title: tmdbMovie.title,
-                       genre: genre,
-                       rarity: rarity,
-                       location: randomLocation
+                       id: tmdbMovie.id, // TMDb 영화 ID
+                       title: tmdbMovie.title, // 영화 제목
+                       genre: genre, // 장르
+                       rarity: rarity, // 희귀도
+                       location: randomLocation, // 랜덤 생성된 위치
+                       posterPath: tmdbMovie.posterPath // 포스터 경로
                    )
                }
                completion(.success(movies))

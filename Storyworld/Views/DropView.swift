@@ -8,10 +8,13 @@
 import UIKit
 
 final class DropView: UIView {
+    public let openButton = UIButton(type: .system)
     private let dropImageView = UIImageView()
     private let titleLabel = UILabel()
     private let tagsStackView = UIStackView()
-    private let openButton = UIButton(type: .system)
+    
+    private var genre: MovieGenre?
+    private var rarity: Rarity?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -120,5 +123,55 @@ final class DropView: UIView {
 
         // 기본 이미지 설정 (추후 업데이트 가능)
         dropImageView.image = UIImage(named: "default-drop-image")
+    }
+    
+    func updateWithMovie(_ movie: TMDbNamespace.TMDbMovieModel) {
+        // 영화 제목 설정
+        titleLabel.text = movie.title
+        
+        // 이전 Drop 정보를 저장 (장르와 rarity)
+        if let currentGenre = genre, let currentRarity = rarity {
+            // 이전 Drop 정보를 유지하고 태그 스택 뷰 초기화
+            tagsStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            
+            // 장르 태그 추가
+            let genreTag = createTagLabel(text: currentGenre.rawValue, color: currentGenre.uiColor)
+            tagsStackView.addArrangedSubview(genreTag)
+            
+            // 희귀도 태그 추가
+            let rarityTag = createTagLabel(text: currentRarity.rawValue, color: UIColor.gray) // 희귀도는 회색으로 표시
+            tagsStackView.addArrangedSubview(rarityTag)
+        }
+
+ 
+        // 영화 포스터 이미지 설정
+        if let posterPath = movie.posterPath {
+            let posterURL = "https://image.tmdb.org/t/p/w500\(posterPath)"
+            // 간단한 이미지 로드 (비동기 작업)
+            if let url = URL(string: posterURL) {
+                // 비동기 URLSession 요청
+                URLSession.shared.dataTask(with: url) { data, response, error in
+                    if let data = data, let image = UIImage(data: data) {
+                        // 메인 스레드에서 UI 업데이트
+                        DispatchQueue.main.async {
+                            self.dropImageView.image = image
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.dropImageView.image = UIImage(named: "default-drop-image")
+                        }
+                    }
+                }.resume()
+            } else {
+                dropImageView.image = UIImage(named: "default-drop-image")
+            }
+        } else {
+            dropImageView.image = UIImage(named: "default-drop-image")
+        }
+
+        // "Open drop" 버튼 비활성화
+        openButton.setTitle("Dropped!", for: .normal)
+        openButton.isEnabled = false
+        openButton.backgroundColor = .gray
     }
 }

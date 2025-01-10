@@ -6,15 +6,21 @@
 //
 
 import UIKit
+import MapboxMaps
 
 final class DropController: UIViewController {
     private let dropView = DropView()
-    private let genre: String
+    private let genre: MovieGenre
+    private let selectedGenreId: Int // 고정된 장르 ID 추가
     private let rarity: String
+    private let tmdbService: TMDbService
+    private var movies: [TMDbNamespace.TMDbMovieModel] = []
 
-    init(genre: String, rarity: String) {
+    init(genre: MovieGenre, selectedGenreId: Int, rarity: String, tmdbService: TMDbService) {
         self.genre = genre
+        self.selectedGenreId = selectedGenreId
         self.rarity = rarity
+        self.tmdbService = tmdbService
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -25,6 +31,9 @@ final class DropController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupView()
+    
+        // Open 버튼 동작 추가
+        dropView.openButton.addTarget(self, action: #selector(handleDrop), for: .touchUpInside)
     }
 
     private func setupView() {
@@ -54,10 +63,81 @@ final class DropController: UIViewController {
         ])
 
         // DropView에 데이터 업데이트
-        dropView.updateView(genre: genre, rarity: rarity)
+        dropView.updateView(genre: genre.rawValue, rarity: rarity)
     }
 
     @objc private func dismissView() {
         dismiss(animated: true, completion: nil)
     }
+    
+    @objc private func handleDrop() {
+        // 최대 페이지 가져오기
+        tmdbService.fetchMoviesByGenres(genreIds: [selectedGenreId], page: 1) { [weak self] result in
+            guard let self = self else { return }
+
+            switch result {
+            case .success((_, let totalPages)):
+                guard totalPages > 0 else {
+                    print("⚠️ 총 페이지 수가 0입니다.")
+                    return
+                }
+
+                let validPageRange = min(totalPages, 500) // 최대 500페이지 제한
+                let randomPage = Int.random(in: 1...validPageRange)
+                print("🎥 Fetching movies for random page: \(randomPage) of \(validPageRange) (Genre ID: \(self.selectedGenreId)).")
+
+                // 🎬 영화 데이터 가져오기
+                self.fetchMovies(page: randomPage) {
+                    guard !self.movies.isEmpty else {
+                        print("⚠️ 영화 데이터가 비어있습니다.")
+                        return
+                    }
+
+                    // 🎲 랜덤으로 영화 선택
+                    guard let randomMovieModel = self.movies.randomElement() else {
+                        print("⚠️ 영화 데이터를 랜덤 선택하는 데 실패했습니다.")
+                        return
+                    }
+
+                    // DropView에 영화 데이터 업데이트
+                    self.dropView.updateWithMovie(randomMovieModel)
+
+                    // 사용자 컬렉션에 영화 저장
+                    var currentMovies = UserDefaults.standard.loadMovies() ?? []
+                    let movieToSave = randomMovieModel.toMovie()
+                    if !currentMovies.contains(where: { $0.id == movieToSave.id }) {
+                        currentMovies.append(movieToSave)
+                        UserDefaults.standard.saveMovies(currentMovies)
+                        print("✅ 영화가 컬렉션에 저장되었습니다: \(movieToSave.title)")
+                    } else {
+                        print("⚠️ 이미 컬렉션에 존재하는 영화입니다: \(movieToSave.title)")
+                    }
+
+                    print("🎬 Drop 완료: \(randomMovieModel.title), \(randomMovieModel.id)")
+                }
+
+            case .failure(let error):
+                print("❌ 최대 페이지 가져오기 실패: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func fetchMovies(page: Int, completion: @escaping () -> Void) {
+        tmdbService.fetchMoviesByGenres(genreIds: [selectedGenreId], page: page) { [weak self] result in
+            guard let self = self else { return }
+
+            switch result {
+            case .success(let (movies, _)):
+                DispatchQueue.main.async {
+                    self.movies = movies
+                    print("✅ Movies fetched: \(movies.map { $0.title })")
+                    completion()
+                }
+            case .failure(let error):
+                print("❌ 영화 데이터 가져오기 실패: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    
 }

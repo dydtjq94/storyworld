@@ -12,10 +12,21 @@ import Turf
 final class MovieController {
     private let mapView: MapView
     private let movieService = MovieService()
+    private var selectedMovie: Movie? // Movie 타입으로 변경
     
-    init(mapView: MapView) {
+    init(mapView: MapView, movie: Movie? = nil) {
         self.mapView = mapView
+        self.selectedMovie = movie
         setupTapGestureRecognizer()
+    }
+    
+    func updateUIWithMovieData() {
+        guard let movie = selectedMovie else { return }
+        
+        print("🎥 Selected Movie: \(movie.title)")
+        print("🎬 Genre: \(movie.genre.rawValue)")
+        print("🌟 Rarity: \(movie.rarity.rawValue)")
+        // 여기에 포스터, 제목, 즐겨찾기 등을 표시하는 로직 추가
     }
     
     func setupTapGestureRecognizer() {
@@ -28,19 +39,17 @@ final class MovieController {
 
         mapView.mapboxMap.queryRenderedFeatures(
             with: tapLocation,
-            options: RenderedQueryOptions(layerIds: ["genre-circle-layer"], filter: nil)
+            options: RenderedQueryOptions(layerIds: nil, filter: nil) // 모든 레이어에서 탐지
         ) { [weak self] result in
             guard let self = self else { return }
             
             switch result {
             case .success(let queriedFeatures):
-                // 첫 번째 QueriedRenderedFeature 가져오기
                 guard let queriedFeature = queriedFeatures.first else {
                     print("⚠️ 클릭된 위치에서 Feature를 찾을 수 없습니다.")
                     return
                 }
 
-                // Feature와 속성 접근
                 let feature = queriedFeature.queriedFeature.feature
                 guard let genreValue = feature.properties?["genre"],
                       case let .string(genre) = genreValue,
@@ -49,18 +58,37 @@ final class MovieController {
                     print("⚠️ Feature 속성에서 데이터를 추출할 수 없습니다.")
                     return
                 }
-
-                print("🎯 클릭된 Circle - Genre: \(genre), Rarity: \(rarity)")
                 
-                // 햅틱 피드백 추가
-                let feedbackGenerator = UIImpactFeedbackGenerator(style: .heavy) // 스타일은 .light, .medium, .heavy 선택 가능
+                guard let movieGenre = MovieGenre(rawValue: genre),
+                      let genreIds = TMDbResponse.mergedGenres[movieGenre],
+                      let selectedGenreId = genreIds.randomElement() else {
+                    print("⚠️ 잘못된 장르 데이터입니다.")
+                    return
+                }
+
+                print("🎯 클릭된 Circle - Genre: \(movieGenre.rawValue), Rarity: \(rarity)")
+                print("🎬 정해진 장르 ID: \(selectedGenreId)")
+                
+                let feedbackGenerator = UIImpactFeedbackGenerator(style: .heavy)
                 feedbackGenerator.impactOccurred()
                 
-                // DropController를 모달로 표시
-                let dropController = DropController(genre: genre, rarity: rarity)
-                dropController.modalPresentationStyle = .overFullScreen // 화면을 꽉 채우도록 설정
-                dropController.modalTransitionStyle = .coverVertical // 위에서 아래로 내려오는 애니메이션
-                self.mapView.window?.rootViewController?.present(dropController, animated: true, completion: nil)
+                // Info.plist에서 API Key 가져오기
+                guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "TMDB_API_KEY") as? String else {
+                    print("❌ TMDB API Key를 가져올 수 없습니다.")
+                    return
+                }
+                
+                let tmdbService = TMDbService(apiKey: apiKey)
+
+                let dropController = DropController(
+                      genre: movieGenre,
+                      selectedGenreId: selectedGenreId, // 고정된 장르 ID 전달
+                      rarity: rarity,
+                      tmdbService: tmdbService
+                  )
+                  dropController.modalPresentationStyle = .overFullScreen
+                  dropController.modalTransitionStyle = .coverVertical
+                  mapView.window?.rootViewController?.present(dropController, animated: true, completion: nil)
 
             case .failure(let error):
                 print("❌ Circle 클릭 처리 중 오류 발생: \(error.localizedDescription)")
@@ -68,67 +96,62 @@ final class MovieController {
         }
     }
 
-    
-    private func showDropView(genre: String, rarity: String, at location: CGPoint) {
-        // 임시로 Print
-        print("🎥 DropView - Genre: \(genre), Rarity: \(rarity), Location: \(location)")
-    }
-
-    /// 🎨 장르와 Rarity 기반 Circle 및 Symbol 추가sumbo
+    /// 🎨 장르와 Rarity 기반 Circle 및 Symbol 추가
     func addGenreCircles(data: [MovieService.CircleData], userLocation: CLLocationCoordinate2D) {
-        let circleSourceId = "genre-circle-source"
-        let symbolSourceId = "genre-symbol-source"
-        let circleLayerId = "genre-circle-layer"
-        let symbolLayerId = "genre-symbol-layer"
-
-        var circleFeatures: [Feature] = []
-        var symbolFeatures: [Feature] = []
-
-        for item in data {
-            // ❌ randomLocation 호출 제거
+        for (index, item) in data.enumerated() {
             let location = item.location
 
-            // Circle Feature 생성
-            var circleFeature = Feature(geometry: .point(Point(location)))
-            circleFeature.properties = [
-                "genre": .string(item.genre.rawValue),
-                "rarity": .string(item.rarity.rawValue)
-            ]
-            circleFeatures.append(circleFeature)
+            // 각 CircleData에 대한 고유 ID 생성
+            let sourceId = "source-\(index)"
+            let glowLayerId = "glow-layer-\(index)"
+            let circleLayerId = "circle-layer-\(index)"
+            let symbolLayerId = "symbol-layer-\(index)"
 
-            // Symbol Feature 생성
-            var symbolFeature = Feature(geometry: .point(Point(location)))
-            symbolFeature.properties = [
-                "genre": .string(item.genre.rawValue),
-                "rarity": .string(item.rarity.rawValue)
-            ]
-            symbolFeatures.append(symbolFeature)
-            
-            // Console 출력
-            print("🎯 Circle 추가 - Genre: \(item.genre.rawValue), Rarity: \(item.rarity.rawValue), Location: \(location.latitude), \(location.longitude)")
-        }
+            do {
+                // GeoJSONSource 생성
+                var feature = Feature(geometry: .point(Point(location)))
+                feature.properties = [
+                    "genre": .string(item.genre.rawValue),
+                    "rarity": .string(item.rarity.rawValue),
+                    "id": .string("\(index)")
+                ]
+                var geoJSONSource = GeoJSONSource(id: sourceId)
+                geoJSONSource.data = .feature(feature)
 
-        do {
-            // Circle Source 추가
-            var circleSource = GeoJSONSource(id: circleSourceId)
-            circleSource.data = .featureCollection(FeatureCollection(features: circleFeatures))
+                // Source 추가
+                if !mapView.mapboxMap.sourceExists(withId: sourceId) {
+                    try mapView.mapboxMap.addSource(geoJSONSource)
+                }
 
-            if !mapView.mapboxMap.sourceExists(withId: circleSourceId) {
-                try mapView.mapboxMap.addSource(circleSource)
-            }
+                // Glow Layer
+                var glowLayer = CircleLayer(id: glowLayerId, source: sourceId)
+                glowLayer.circleColor = .expression(
+                    Exp(.match,
+                        Exp(.get, "genre"),
+                        MovieGenre.actionAdventure.rawValue, StyleColor(MovieGenre.actionAdventure.uiColor).rawValue,
+                        MovieGenre.animation.rawValue, StyleColor(MovieGenre.animation.uiColor).rawValue,
+                        MovieGenre.comedy.rawValue, StyleColor(MovieGenre.comedy.uiColor).rawValue,
+                        MovieGenre.horrorThriller.rawValue, StyleColor(MovieGenre.horrorThriller.uiColor).rawValue,
+                        MovieGenre.documentaryWar.rawValue, StyleColor(MovieGenre.documentaryWar.uiColor).rawValue,
+                        MovieGenre.sciFiFantasy.rawValue, StyleColor(MovieGenre.sciFiFantasy.uiColor).rawValue,
+                        MovieGenre.drama.rawValue, StyleColor(MovieGenre.drama.uiColor).rawValue,
+                        MovieGenre.romance.rawValue, StyleColor(MovieGenre.romance.uiColor).rawValue,
+                        StyleColor(UIColor.gray).rawValue // 기본값
+                    )
+                )
+                glowLayer.circleRadius = .expression(
+                    Exp(.match,
+                        Exp(.get, "rarity"),
+                        Rarity.rare.rawValue, 30.0,
+                        Rarity.epic.rawValue, 50.0,
+                        0.0 // 기본값
+                    )
+                )
+                glowLayer.circleBlur = .constant(1.0)
+                glowLayer.circleOpacity = .constant(1.0)
 
-            // Symbol Source 추가
-            var symbolSource = GeoJSONSource(id: symbolSourceId)
-            symbolSource.data = .featureCollection(FeatureCollection(features: symbolFeatures))
-
-            if !mapView.mapboxMap.sourceExists(withId: symbolSourceId) {
-                try mapView.mapboxMap.addSource(symbolSource)
-            }
-
-            // Circle Layer 추가 (첫 번째 레이어부터 시작)
-            if !mapView.mapboxMap.layerExists(withId: circleLayerId) {
-                var circleLayer = CircleLayer(id: circleLayerId, source: circleSourceId)
-                // 장르별 색상
+                // Circle Layer
+                var circleLayer = CircleLayer(id: circleLayerId, source: sourceId)
                 circleLayer.circleColor = .expression(
                     Exp(.match,
                         Exp(.get, "genre"),
@@ -143,50 +166,36 @@ final class MovieController {
                         StyleColor(UIColor.gray).rawValue // 기본값
                     )
                 )
-                // Rarity에 따른 효과
-                circleLayer.circleRadius = .constant(14)
-                circleLayer.circleOpacity = .constant(0.9)
+                circleLayer.circleRadius = .constant(14.0)
+                circleLayer.circleOpacity = .constant(1.0)
 
-                // 레이어 순서 설정 (기본적으로 SymbolLayer 아래에 두기)
-                circleLayer.sourceLayer = circleLayerId
-                try mapView.mapboxMap.addLayer(circleLayer)
-            }
-
-            // 아이콘 이미지 등록
-            let iconName = "movie-icon"
-            if let iconImage = UIImage(named: iconName) {
-                registerIconImage(iconName: iconName, image: iconImage)
-            }
-
-            // SymbolLayer 추가 (두 번째 레이어부터 시작)
-            if !mapView.mapboxMap.layerExists(withId: symbolLayerId) {
-                var symbolLayer = SymbolLayer(id: symbolLayerId, source: symbolSourceId)
-                symbolLayer.iconImage = .constant(.name(iconName)) // 등록된 이미지 사용
-                symbolLayer.iconSize = .constant(0.4) // 아이콘 크기
-                symbolLayer.iconAnchor = .constant(.center) // 아이콘 중심 정렬
+                // Symbol Layer
+                let iconName = "movie-icon"
+                if let iconImage = UIImage(named: iconName) {
+                    registerIconImage(iconName: iconName, image: iconImage)
+                }
+                var symbolLayer = SymbolLayer(id: symbolLayerId, source: sourceId)
+                symbolLayer.iconImage = .constant(.name(iconName))
+                symbolLayer.iconSize = .constant(0.4)
+                symbolLayer.iconAnchor = .constant(.center)
                 symbolLayer.iconAllowOverlap = .constant(true)
                 symbolLayer.iconIgnorePlacement = .constant(true)
 
-                do {
-                    try mapView.mapboxMap.addLayer(symbolLayer)
-                    print("✅ SymbolLayer가 성공적으로 추가되었습니다.")
-                } catch {
-                    print("❌ SymbolLayer 추가 실패: \(error.localizedDescription)")
-                }
-            }
+                // 레이어 추가
+                try mapView.mapboxMap.addLayer(glowLayer)
+                try mapView.mapboxMap.addLayer(circleLayer, layerPosition: .above(glowLayer.id))
+                try mapView.mapboxMap.addLayer(symbolLayer, layerPosition: .above(circleLayer.id))
 
-            print("✅ 장르 Circle과 Symbol이 성공적으로 추가되었습니다.")
-        } catch {
-            print("❌ Circle 및 Symbol 추가 실패: \(error.localizedDescription)")
+            } catch {
+                print("❌ 레이어 추가 실패: \(error.localizedDescription)")
+            }
         }
     }
-
 
     // 아이콘 이미지를 등록하는 함수
     private func registerIconImage(iconName: String, image: UIImage) {
         do {
             try mapView.mapboxMap.addImage(image, id: iconName)
-            print("✅ 아이콘 \(iconName) 이미지가 성공적으로 등록되었습니다.")
         } catch {
             print("❌ 아이콘 이미지를 등록하는 데 실패했습니다: \(error.localizedDescription)")
         }

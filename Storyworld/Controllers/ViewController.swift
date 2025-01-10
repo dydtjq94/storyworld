@@ -11,23 +11,22 @@ import CoreLocation
 import Turf
 
 final class ViewController: UIViewController, CLLocationManagerDelegate {
-        private var mapView: MapView!
-        private let locationManager = CLLocationManager()
+    private var mapView: MapView!
+    private let locationManager = CLLocationManager()
 
-        private var sourceId = "circle-source"
-        private var smallCircleLayerId = "small-circle-layer"
-        private var largeCircleLayerId = "large-circle-layer"
-        private let movieService = MovieService() // 추가
-        private var movieController: MovieController?
-        private var isMovieDataLoaded = false // 영화 데이터 로드 여부 추가
+    private var sourceId = "circle-source"
+    private var smallCircleLayerId = "small-circle-layer"
+    private var largeCircleLayerId = "large-circle-layer"
+    private let movieService = MovieService() // 추가
+    private var movieController: MovieController?
+    private var isMovieDataLoaded = false // 영화 데이터 로드 여부 추가
 
-        override func viewDidLoad() {
-           super.viewDidLoad()
-           setupMapView()
-           setupLocationManager()
-           
-        }
-    
+    override func viewDidLoad() {
+       super.viewDidLoad()
+       setupMapView()
+       setupLocationManager()        
+    }
+
     // MARK: - MapView 설정
     private func setupMapView() {
         // ✅ Info.plist에서 AccessToken 가져오기
@@ -89,6 +88,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
                 movieService.getCircleData(userLocation: coordinate) { circleData in
                     // CircleData 배열을 MovieController에 전달
                     movieController.addGenreCircles(data: circleData, userLocation: coordinate)
+                    
                     self.reloadLocationPuck() // Puck 재배치
                 }
             } else {
@@ -237,7 +237,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             }
         
             var smallCircleLayer = FillLayer(id: "small-circle-layer", source: smallCircleSourceId)
-            smallCircleLayer.fillColor = .constant(StyleColor(UIColor.systemRed.withAlphaComponent(0.7)))
+            smallCircleLayer.fillColor = .constant(StyleColor(UIColor.systemRed.withAlphaComponent(0.5)))
 //            smallCircleLayer.fillOutlineColor = .constant(StyleColor(UIColor.systemBlue))
             
             if !mapView.mapboxMap.layerExists(withId: "small-circle-layer") {
