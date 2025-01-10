@@ -49,8 +49,17 @@ final class MovieController {
                     print("⚠️ 클릭된 위치에서 Feature를 찾을 수 없습니다.")
                     return
                 }
-
+                
                 let feature = queriedFeature.queriedFeature.feature
+                
+                guard case let .point(pointGeometry) = feature.geometry else {
+                    print("⚠️ Feature의 좌표를 가져올 수 없습니다.")
+                    return
+                }
+
+                let coordinates = pointGeometry.coordinates
+
+
                 guard let genreValue = feature.properties?["genre"],
                       case let .string(genre) = genreValue,
                       let rarityValue = feature.properties?["rarity"],
@@ -65,35 +74,87 @@ final class MovieController {
                     print("⚠️ 잘못된 장르 데이터입니다.")
                     return
                 }
-
-                print("🎯 클릭된 Circle - Genre: \(movieGenre.rawValue), Rarity: \(rarity)")
-                print("🎬 정해진 장르 ID: \(selectedGenreId)")
                 
-                let feedbackGenerator = UIImpactFeedbackGenerator(style: .heavy)
-                feedbackGenerator.impactOccurred()
-                
-                // Info.plist에서 API Key 가져오기
-                guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "TMDB_API_KEY") as? String else {
-                    print("❌ TMDB API Key를 가져올 수 없습니다.")
+                // 현재 위치 가져오기
+                guard let userLocation = self.mapView.location.latestLocation?.coordinate else {
+                    print("⚠️ 사용자 위치를 가져올 수 없습니다.")
                     return
                 }
                 
-                let tmdbService = TMDbService(apiKey: apiKey)
-
-                let dropController = DropController(
-                      genre: movieGenre,
-                      selectedGenreId: selectedGenreId, // 고정된 장르 ID 전달
-                      rarity: rarity,
-                      tmdbService: tmdbService
-                  )
-                  dropController.modalPresentationStyle = .overFullScreen
-                  dropController.modalTransitionStyle = .coverVertical
-                  mapView.window?.rootViewController?.present(dropController, animated: true, completion: nil)
+                // 거리 계산
+                let circleLocation = CLLocation(latitude: coordinates.latitude, longitude: coordinates.longitude)
+                let userLocationCL = CLLocation(latitude: userLocation.latitude, longitude: userLocation.longitude)
+                let distance = userLocationCL.distance(from: circleLocation)
+                
+                // 반경에 따른 처리
+                if distance <= 200 {
+                    // 50m 이내의 클릭
+                    print("✅ 50m 이내의 Circle 클릭, 현재 거리: \(distance)m")
+                    self.handleDropWithin50m(movieGenre: movieGenre, rarity: rarity, selectedGenreId: selectedGenreId)
+                } else if distance <= 500 {
+                    // 50m ~ 200m 클릭
+                    print("⚠️ 50m ~ 200m Circle 클릭 - PRO 구독 필요, 현재 거리: \(distance)m")
+                    self.showProSubscriptionMessage()
+                } else {
+                    // 200m 초과 클릭
+                    print("⚠️ 200m 초과 Circle 클릭 - 광고 보기 필요, 현재 거리: \(distance)m")
+                    self.showAdMessage()
+                }
 
             case .failure(let error):
                 print("❌ Circle 클릭 처리 중 오류 발생: \(error.localizedDescription)")
             }
         }
+    }
+    
+    // 50m 이내 Circle 클릭 처리
+    private func handleDropWithin50m(movieGenre: MovieGenre, rarity: String, selectedGenreId: Int) {
+        print("🎯 클릭된 Circle - Genre: \(movieGenre.rawValue), Rarity: \(rarity)")
+        print("🎬 정해진 장르 ID: \(selectedGenreId)")
+        
+        // Haptic Feedback 추가
+        let feedbackGenerator = UIImpactFeedbackGenerator(style: .heavy)
+        feedbackGenerator.prepare() // 미리 준비
+        feedbackGenerator.impactOccurred() // Haptic 발생
+        
+        // Info.plist에서 API Key 가져오기
+        guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "TMDB_API_KEY") as? String else {
+            print("❌ TMDB API Key를 가져올 수 없습니다.")
+            return
+        }
+        
+        let tmdbService = TMDbService(apiKey: apiKey)
+
+        let dropController = DropController(
+            genre: movieGenre,
+            selectedGenreId: selectedGenreId, // 고정된 장르 ID 전달
+            rarity: rarity,
+            tmdbService: tmdbService
+        )
+        dropController.modalPresentationStyle = .overFullScreen
+        dropController.modalTransitionStyle = .coverVertical
+        mapView.window?.rootViewController?.present(dropController, animated: true, completion: nil)
+    }
+    
+    // 50m ~ 200m 클릭 처리 - PRO 구독 필요 메시지
+    private func showProSubscriptionMessage() {
+        // Haptic Feedback 추가
+        let feedbackGenerator = UIImpactFeedbackGenerator(style: .heavy)
+        feedbackGenerator.prepare() // 미리 준비
+        feedbackGenerator.impactOccurred() // Haptic 발생
+        print("🔒 PRO 구독이 필요합니다.")
+        // PRO 구독 안내 화면을 추가로 구현 가능
+        
+    }
+
+    // 200m 초과 클릭 처리 - 광고 보기 필요 메시지
+    private func showAdMessage() {
+        // Haptic Feedback 추가
+        let feedbackGenerator = UIImpactFeedbackGenerator(style: .heavy)
+        feedbackGenerator.prepare() // 미리 준비
+        feedbackGenerator.impactOccurred() // Haptic 발생
+        print("📢 광고 보기가 필요합니다.")
+        // 광고 보기 화면을 추가로 구현 가능
     }
 
     /// 🎨 장르와 Rarity 기반 Circle 및 Symbol 추가
