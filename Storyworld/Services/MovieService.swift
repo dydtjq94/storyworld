@@ -12,8 +12,9 @@ final class MovieService {
     private let userDefaults = UserDefaults.standard
     private let expirationInterval: TimeInterval = 6 * 60 * 60 // 6시간
     private let tmdbService = TMDbService(apiKey: Bundle.main.object(forInfoDictionaryKey: "TMDB_API_KEY") as! String)
-    private let maxCircleCount = 200 // 지도에 표시할 최대 Circle 개수
+    private let maxCircleCount = 100 // 지도에 표시할 최대 Circle 개수
     private let maxRadiusMap = 1500 // 지도에 표시할 최대 반경
+
     
     struct CircleData: Codable {
         let genre: MovieGenre
@@ -85,7 +86,7 @@ final class MovieService {
             let randomRarity = randomRarityBasedOnProbability(rarityProbabilities)
 
             // 랜덤 좌표 생성
-            guard let randomLocation = randomCoordinate(around: userLocation, radius: Double(maxRadiusMap)) else { continue }
+            guard let randomLocation = randomCoordinateInSquare(around: userLocation, sideLength: Double(maxRadiusMap)) else { continue }
 
             // CircleData 생성
             circleData.append(CircleData(genre: randomGenre, rarity: randomRarity, location: randomLocation))
@@ -114,7 +115,6 @@ final class MovieService {
         // 기본값 반환 (논리적으로 이곳에 도달하지 않음)
         return .common
     }
-
     
     /// TMDb에서 특정 장르와 Rarity에 따른 영화 데이터 가져오기
     func fetchMovies(for genre: MovieGenre, rarity: Rarity, completion: @escaping (Result<[Movie], Error>) -> Void) {
@@ -123,9 +123,9 @@ final class MovieService {
            switch result {
            case .success(let (tmdbMovies, _)):
                let movies = tmdbMovies.compactMap { tmdbMovie -> Movie? in
-                   guard let randomLocation = self.randomCoordinate(
+                   guard let randomLocation = self.randomCoordinateInSquare(
                        around: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780), // 서울 중심
-                       radius: 500
+                       sideLength: 500
                    ) else {
                        return nil
                    }
@@ -168,22 +168,20 @@ final class MovieService {
         }
     }
     
-    /// 📍 랜덤 좌표 생성 (중심 좌표에서 특정 반경 내)
-    func randomCoordinate(around center: CLLocationCoordinate2D, radius: Double) -> CLLocationCoordinate2D? {
+    /// 📍 랜덤 좌표 생성 (중심 좌표에서 특정 네모난 영역 내)
+    func randomCoordinateInSquare(around center: CLLocationCoordinate2D, sideLength: Double) -> CLLocationCoordinate2D? {
         let earthRadius = 6371000.0 // 지구 반경 (미터 단위)
+        let halfSide = sideLength / 2.0 // 반쪽 길이 (미터)
 
-        // 반경 내 거리와 각도를 랜덤으로 생성
-        let randomDistance = sqrt(Double.random(in: 0...1)) * radius // 제곱근으로 균등 분포
-        let randomAngle = Double.random(in: 0..<(2 * .pi))
+        // 위도 및 경도 범위 계산
+        let deltaLatitude = (halfSide / earthRadius) * (180 / .pi)
+        let deltaLongitude = (halfSide / (earthRadius * cos(center.latitude * .pi / 180))) * (180 / .pi)
 
-        // 위도와 경도 계산
-        let deltaLatitude = randomDistance * cos(randomAngle) / earthRadius * (180 / .pi)
-        let deltaLongitude = randomDistance * sin(randomAngle) / (earthRadius * cos(center.latitude * .pi / 180)) * (180 / .pi)
+        // 중심으로부터 랜덤한 범위 내에서 좌표 생성
+        let randomLatitude = center.latitude + Double.random(in: -deltaLatitude...deltaLatitude)
+        let randomLongitude = center.longitude + Double.random(in: -deltaLongitude...deltaLongitude)
 
-        return CLLocationCoordinate2D(
-            latitude: center.latitude + deltaLatitude,
-            longitude: center.longitude + deltaLongitude
-        )
+        return CLLocationCoordinate2D(latitude: randomLatitude, longitude: randomLongitude)
     }
 
     

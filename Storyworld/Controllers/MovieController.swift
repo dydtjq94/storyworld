@@ -231,13 +231,13 @@ final class MovieController {
                 circleLayer.circleOpacity = .constant(1.0)
 
                 // Symbol Layer
-                let iconName = "movie-icon"
+                let iconName = "chim-icon"
                 if let iconImage = UIImage(named: iconName) {
                     registerIconImage(iconName: iconName, image: iconImage)
                 }
                 var symbolLayer = SymbolLayer(id: symbolLayerId, source: sourceId)
                 symbolLayer.iconImage = .constant(.name(iconName))
-                symbolLayer.iconSize = .constant(0.4)
+                symbolLayer.iconSize = .constant(0.2)
                 symbolLayer.iconAnchor = .constant(.center)
                 symbolLayer.iconAllowOverlap = .constant(true)
                 symbolLayer.iconIgnorePlacement = .constant(true)

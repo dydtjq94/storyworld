@@ -13,6 +13,7 @@ import Turf
 final class ViewController: UIViewController, CLLocationManagerDelegate {
     private var mapView: MapView!
     private let locationManager = CLLocationManager()
+    private let initialZoom: Double = 15.5 // 지도에 표시할 최대 반경
 
     private var sourceId = "circle-source"
     private var smallCircleLayerId = "small-circle-layer"
@@ -20,11 +21,14 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
     private let movieService = MovieService() // 추가
     private var movieController: MovieController?
     private var isMovieDataLoaded = false // 영화 데이터 로드 여부 추가
+    
+    private var lastBackgroundTime: Date? // 마지막 백그라운드 전환 시각
 
     override func viewDidLoad() {
-       super.viewDidLoad()
-       setupMapView()
-       setupLocationManager()        
+        super.viewDidLoad()
+        setupMapView()
+        setupLocationManager()
+        setupNotifications() // 추가된 기능: Notification 설정
     }
 
     // MARK: - MapView 설정
@@ -55,6 +59,56 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         
         // ✅ MapView를 뷰에 추가
         view.addSubview(mapView)
+    }
+    
+    // MARK: - Notification 설정
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+    
+    // MARK: - 앱이 포그라운드로 돌아왔을 때
+    @objc private func handleAppWillEnterForeground() {
+        guard let lastBackgroundTime = lastBackgroundTime else { return }
+        let timeInBackground = Date().timeIntervalSince(lastBackgroundTime)
+
+        // 30초 이상 백그라운드에 있었다면 현재 위치로 이동
+        if timeInBackground > 60 {
+            print("🔄 앱이 60초 이상 백그라운드에 있었습니다. 현재 위치로 화면 이동.")
+            moveCameraToCurrentLocation()
+        }
+    }
+
+    // MARK: - 앱이 백그라운드로 전환될 때
+    @objc private func handleAppDidEnterBackground() {
+        lastBackgroundTime = Date() // 백그라운드 전환 시각 저장
+        print("🔄 앱이 백그라운드로 전환되었습니다.")
+    }
+
+    // MARK: - 현재 위치로 화면 이동
+    private func moveCameraToCurrentLocation() {
+        guard let userLocation = mapView.location.latestLocation else {
+            print("⚠️ 현재 위치 정보를 가져올 수 없습니다.")
+            return
+        }
+
+        setInitialCamera(to: userLocation.coordinate)
+        print("📍 현재 위치로 화면을 이동했습니다: \(userLocation.coordinate.latitude), \(userLocation.coordinate.longitude)")
+    }
+
+    // 기존 코드는 변경하지 않음
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     private func configureUserLocationDisplay() {
@@ -142,14 +196,8 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         }
     }
     
-//    private func setInitialCamera(to coordinate: CLLocationCoordinate2D) {
-//        let cameraOptions = CameraOptions(center: coordinate, zoom: 15.0)
-//        mapView.mapboxMap.setCamera(to: cameraOptions)
-//        print("📍 초기 카메라가 사용자 위치로 설정되었습니다.")
-//    }
-    
     private func setInitialCamera(to coordinate: CLLocationCoordinate2D) {
-        let cameraOptions = CameraOptions(center: coordinate, zoom: 15) // 초기 zoom 단계
+        let cameraOptions = CameraOptions(center: coordinate, zoom: initialZoom) // 초기 zoom 단계
         mapView.mapboxMap.setCamera(to: cameraOptions)
         print("📍 초기 카메라가 사용자 위치로 설정되었습니다.")
     }
@@ -197,13 +245,6 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         updateCircleLayers(with: userLocation.coordinate)
         lastUpdatedLocation = userLocation
         print("📍 사용자 위치 업데이트됨 - 원만 업데이트됨, 화면 유지")
-    }
-
-    // ✅ 거리 계산 함수
-    private func calculateDistance(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> CLLocationDistance {
-        let fromLocation = CLLocation(latitude: from.latitude, longitude: from.longitude)
-        let toLocation = CLLocation(latitude: to.latitude, longitude: to.longitude)
-        return fromLocation.distance(from: toLocation)
     }
     
     private func createCirclePolygon(center: CLLocationCoordinate2D, radius: Double) -> Feature {
