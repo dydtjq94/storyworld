@@ -18,9 +18,7 @@ struct Tile: Hashable {
 extension Tile {
     // Tile -> String 변환
     func toKey() -> String {
-        let key = "\(x)-\(y)-\(z)"
-        print("🔑 Tile Key 생성: \(key)")
-        return key
+        return "\(x)-\(y)-\(z)"
     }
 
     // String -> Tile 변환
@@ -31,17 +29,14 @@ extension Tile {
     }
 }
 
-/// 타일 경계 정보
-struct TileBounds {
-    let minLatitude: Double
-    let maxLatitude: Double
-    let minLongitude: Double
-    let maxLongitude: Double
-}
-
 /// 타일 매니저
 final class TileManager {
-
+    
+    struct TileInfo: Codable {
+        let layerData: [MovieService.CircleData]
+        var isVisible: Bool
+    }
+    
     /// 특정 줌 레벨에서 중심 좌표 기준으로 가로 세로 1,000m 범위 내 타일 계산
     func tilesInRange(center: CLLocationCoordinate2D) -> [Tile] {
         let fixedZoomLevel = 18 // 고정된 줌 레벨
@@ -69,7 +64,7 @@ final class TileManager {
         print("📍 타일 범위 계산 완료: \(tilesInRange.count)개 타일 (Zoom: \(fixedZoomLevel), Side Length: \(fixedSideLength)m)")
         return tilesInRange
     }
-    
+
     /// 줌 레벨에 따른 타일 크기 계산 (미터 단위)
     private func metersPerTile(at zoomLevel: Double) -> Double {
         let adjustedZoomLevel = zoomLevel // 줌 레벨 보정

@@ -16,6 +16,8 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
     private let movieService = MovieService()
     private var movieController: MovieController?
     private let tileManager = TileManager()
+    private let tileService = TileService()
+    private let tileCacheManager = TileCacheManager()
     private let locationCircleManager = LocationCircleManager()
     private var notificationManager: NotificationManager? // NotificationManager 추가
     private var cameraManager: CameraManager? // CameraManager 추가
@@ -26,33 +28,33 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
     private var isMovieDataLoaded = false // 영화 데이터 로드 여부 추가
 
     override func viewDidLoad() {
-            super.viewDidLoad()
-            setupMapView()
-            setupLocationManager()
-            
-            // NotificationManager 초기화
-            notificationManager = NotificationManager(
-                onScanButtonTapped: { [weak self] in
-                    self?.handleScanButtonTapped()
-                },
-                onClearCacheTapped: { [weak self] in
-                    self?.handleClearCacheTapped()
-                },
-                onAppWillEnterForeground: { [weak self] in
-                    self?.handleAppWillEnterForeground()
-                },
-                onAppDidEnterBackground: { [weak self] in
-                    self?.handleAppDidEnterBackground()
-                }
-            )
-            notificationManager?.setupNotifications()
-            
-            // 스타일 설정 및 카메라 제스처 옵션 설정
-            mapStyleManager?.applyDarkStyle {
-                print("✅ 스타일 설정 후 카메라 제스처 옵션을 적용합니다.")
-                self.cameraManager?.configureGestureOptions() // cameraManager에서 제스처 옵션 설정
+        super.viewDidLoad()
+        setupMapView()
+        setupLocationManager()
+        
+        // NotificationManager 초기화
+        notificationManager = NotificationManager(
+            onScanButtonTapped: { [weak self] in
+                self?.handleScanButtonTapped()
+            },
+            onClearCacheTapped: { [weak self] in
+                self?.handleClearCacheTapped()
+            },
+            onAppWillEnterForeground: { [weak self] in
+                self?.handleAppWillEnterForeground()
+            },
+            onAppDidEnterBackground: { [weak self] in
+                self?.handleAppDidEnterBackground()
             }
+        )
+        notificationManager?.setupNotifications()
+        
+        // 스타일 설정 및 카메라 제스처 옵션 설정
+        mapStyleManager?.applyDarkStyle {
+            print("✅ 스타일 설정 후 카메라 제스처 옵션을 적용합니다.")
+            self.cameraManager?.configureGestureOptions() // cameraManager에서 제스처 옵션 설정
         }
+    }
 
     // MARK: - MapView 설정
     private func setupMapView() {
@@ -89,45 +91,62 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
     
     // Handle Scan Button Tapped
     @objc private func handleScanButtonTapped() {
-        cameraManager?.setZoomLevel(to: 16.0) { [weak self] in
-            guard let self = self else { return }
-            let centerCoordinate = self.mapView.mapboxMap.cameraState.center
+        performZoom(to: 16.0) { [weak self] in
+        guard let self = self else { return }
 
-            // 타일 계산
-            let visibleTiles = self.tileManager.tilesInRange(center: centerCoordinate)
+        let centerCoordinate = self.mapView.mapboxMap.cameraState.center
 
-            print("📍 현재 보이는 타일: \(visibleTiles.count)")
-            print("📍 타일 리스트: \(visibleTiles)")
+        // 타일 계산
+        let visibleTiles = self.tileManager.tilesInRange(center: centerCoordinate)
 
-            // Circle 데이터 생성 및 필터링
-            let filteredCircles = self.movieService.createFilteredCircleData(
-              visibleTiles: visibleTiles,
-              tileManager: self.tileManager
-            )
-
-            if filteredCircles.isEmpty {
-                print("⚠️ 추가 생성된 Circle 데이터가 없습니다.")
+        print("📍 현재 보이는 타일: \(visibleTiles.count)")
+        print("📍 타일 리스트: \(visibleTiles)")
+        // 타일 데이터 비어 있는지 확인
+        for tile in visibleTiles {
+            if let tileInfo = tileService.getTileInfo(for: tile) {
+                print("✅ 타일 데이터 존재: \(tile.toKey())")
+                
+                // Circle 데이터를 기반으로 레이어 추가 (이미 존재하는 데이터)
+                movieController?.layerManager.addGenreCircles(data: tileInfo.layerData, userLocation: centerCoordinate)
             } else {
-                // `layerManager`를 통해 호출
-                self.movieController?.layerManager.addGenreCircles(
-                    data: filteredCircles,
-                    userLocation: centerCoordinate,
-                    isScan: true
-                )
+                print("➕ 새로운 타일 발견: \(tile.toKey())")
+
+                // 새 CircleData 생성
+                let newCircleData = movieService.createFilteredCircleData(visibleTiles: [tile], tileManager: tileManager)
+
+                // 타일 정보 저장 및 isVisible 상태를 true로 설정
+                tileService.saveTileInfo(for: tile, layerData: newCircleData, isVisible: true)
+
+                // Circle 데이터를 기반으로 레이어 추가
+                movieController?.layerManager.addGenreCircles(data: newCircleData, userLocation: centerCoordinate)
             }
-            
-            reloadLocationPuck()
+        }
+
+           
+           reloadLocationPuck()
 
             // 작업 완료 후 줌 레벨 복구
-            self.cameraManager?.setZoomLevel(to: 15.0) {
-              print("✅ Zoom 레벨이 15.0으로 복구되었습니다.")
+            self.performZoom(to: 15.0) {
+                print("✅ Zoom 레벨이 15.0으로 복구되었습니다.")
             }
+        }
+    }
+    
+    // Zoom 설정 및 복구를 함께 처리
+    private func performZoom(to zoomLevel: Double, completion: @escaping () -> Void) {
+        // Zoom 설정 (애니메이션 포함)
+        mapView.camera.ease(
+            to: CameraOptions(zoom: zoomLevel),
+            duration: 0.5, // 애니메이션 시간
+            curve: .easeInOut
+        ) { _ in
+            print("✅ Zoom 레벨이 \(zoomLevel)으로 설정되었습니다.")
+            completion() // 줌 레벨 변경이 완료된 후 작업 수행
         }
     }
 
     @objc private func handleClearCacheTapped() {
-        movieService.clearCache()
-        print("✅ 캐시가 성공적으로 삭제되었습니다.")
+        tileCacheManager.clearCache()
     }
     
     // MARK: - 앱이 포그라운드로 돌아왔을 때
@@ -181,18 +200,35 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             // 지도에 표시할 타일을 기반으로 필터링된 Circle 데이터를 생성하고 지도에 추가
             if let movieController = self.movieController {
                 // 현재 보이는 타일 및 줌 레벨 정보
-                let visibleTiles = tileManager.tilesInRange(center: coordinate) // 줌 레벨은 적절히 설정
-                let filteredCircleData = movieService.createFilteredCircleData(visibleTiles: visibleTiles,  tileManager: tileManager)
+                let visibleTiles = tileManager.tilesInRange(center: coordinate)
 
-                // 필터링된 Circle 데이터를 지도에 추가
-                movieController.layerManager.addGenreCircles(data: filteredCircleData, userLocation: coordinate)
+                // 타일 데이터 비어 있는지 확인
+                for tile in visibleTiles {
+                    if let tileInfo = tileService.getTileInfo(for: tile) {
+                        print("✅ 타일 데이터 존재: \(tile.toKey())")
+                        
+                        // Circle 데이터를 기반으로 레이어 추가 (이미 존재하는 데이터)
+                        movieController.layerManager.addGenreCircles(data: tileInfo.layerData, userLocation: coordinate)
+                    } else {
+                        print("➕ 새로운 타일 발견: \(tile.toKey())")
+
+                        // 새 CircleData 생성
+                        let newCircleData = movieService.createFilteredCircleData(visibleTiles: [tile], tileManager: tileManager)
+
+                        // 타일 정보 저장 및 isVisible 상태를 true로 설정
+                        tileService.saveTileInfo(for: tile, layerData: newCircleData, isVisible: true)
+
+                        // Circle 데이터를 기반으로 레이어 추가
+                        movieController.layerManager.addGenreCircles(data: newCircleData, userLocation: coordinate)
+                    }
+                }
             } else {
-                print("⚠️ MovieController가 초기화되지 않았습니다.")
-            }
+            print("⚠️ MovieController가 초기화되지 않았습니다.")
+        }
 
-            // 스타일 및 불필요한 레이어 제거
-            self.mapStyleManager?.applyDarkStyle()
-            reloadLocationPuck()
+        // 스타일 및 불필요한 레이어 제거
+        self.mapStyleManager?.applyDarkStyle()
+        reloadLocationPuck()
         }
     }
     

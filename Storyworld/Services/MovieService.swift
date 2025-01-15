@@ -9,11 +9,6 @@ import Foundation
 import CoreLocation
 
 final class MovieService {
-    let circleCacheManager = CircleCacheManager()
-    private let expirationInterval: TimeInterval = 6 * 60 * 60 // 6시간
-    private let tmdbService = TMDbService(apiKey: Bundle.main.object(forInfoDictionaryKey: "TMDB_API_KEY") as! String)
-    private let maxCircleCount = 50 // 지도에 표시할 최대 Circle 개수
-    private let sideLength = 1000 // 지도에 표시할 최대 반경
     private let tileManager = TileManager()
 
     struct CircleData: Codable {
@@ -135,11 +130,4 @@ final class MovieService {
 
         return CLLocationCoordinate2D(latitude: randomLat, longitude: randomLon)
     }
-
-    /// 캐시 초기화
-    func clearCache() {
-        circleCacheManager.clearCache()
-    }
-    
-    
 }

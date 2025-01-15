@@ -10,6 +10,8 @@ import UIKit
 
 final class MovieLayerMapManager {
     private let mapView: MapView
+    private let tileManager = TileManager()
+    private let tileService = TileService()
 
     init(mapView: MapView) {
         self.mapView = mapView
@@ -19,21 +21,15 @@ final class MovieLayerMapManager {
         for (index, item) in data.enumerated() {
             let location = item.location
 
-            // TileKey 생성
-            let tileKey = "\(Int(location.latitude * 1e6))-\(Int(location.longitude * 1e6))"
-
-            // ID 생성: Scan 데이터와 기존 데이터 구분
+            // 타일 정보 기반 고유 ID 생성
+            let tile = tileManager.calculateTile(for: location, zoomLevel: 18)
+            let tileKey = tile.toKey()
+            
             let prefix = isScan ? "scan-\(UUID().uuidString)-" : ""
-            let sourceId = "\(prefix)source-\(index)"
-            let glowLayerId = "\(prefix)glow-layer-\(index)"
-            let circleLayerId = "\(prefix)circle-layer-\(index)"
-            let symbolLayerId = "\(prefix)symbol-layer-\(index)"
-
-            // 기존 소스와 레이어 확인
-            if mapView.mapboxMap.sourceExists(withId: sourceId) || mapView.mapboxMap.layerExists(withId: circleLayerId) {
-                print("⚠️ 이미 존재하는 소스 또는 레이어: \(sourceId), \(circleLayerId)")
-                continue
-            }
+            let sourceId = "\(prefix)source-\(tileKey)"
+            let glowLayerId = "\(prefix)glow-layer-\(tileKey)"
+            let circleLayerId = "\(prefix)circle-layer-\(tileKey)"
+            let symbolLayerId = "\(prefix)symbol-layer-\(tileKey)"
 
             do {
                 // GeoJSONSource 생성
@@ -48,7 +44,6 @@ final class MovieLayerMapManager {
 
                 // Source 추가
                 try mapView.mapboxMap.addSource(geoJSONSource)
-                print("✅ 소스 추가 완료: \(sourceId)")
 
                 // Glow Layer 설정
                 var glowLayer = CircleLayer(id: glowLayerId, source: sourceId)
@@ -112,8 +107,6 @@ final class MovieLayerMapManager {
                 try mapView.mapboxMap.addLayer(glowLayer)
                 try mapView.mapboxMap.addLayer(circleLayer, layerPosition: .above(glowLayer.id))
                 try mapView.mapboxMap.addLayer(symbolLayer, layerPosition: .above(circleLayer.id))
-
-                print("✅ 레이어 추가 완료: \(circleLayerId), \(symbolLayerId)")
 
             } catch {
                 print("❌ 레이어 추가 실패: \(error.localizedDescription)")
