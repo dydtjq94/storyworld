@@ -169,11 +169,6 @@ final class MovieService {
         circleCacheManager.clearCache()
     }
     
-    init() {
-        // 앱 실행 시 기존 캐시 데이터를 기반으로 그리드 키 초기화
-        circleCacheManager.initializeGridKeys()
-    }
-    
     func createFilteredCircleData(visibleTiles: [Tile], zoomLevel: Int, tileManager: TileManager) -> [MovieService.CircleData] {
         var filteredCircles: [MovieService.CircleData] = []
         let genres: [MovieGenre] = [.actionAdventure, .animation, .comedy, .horrorThriller, .documentaryWar, .sciFiFantasy, .drama, .romance]

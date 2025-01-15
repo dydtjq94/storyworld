@@ -156,20 +156,3 @@ final class CircleCacheManager {
         }
     }
 }
-
-extension CircleCacheManager {
-    // 기존 캐시 데이터의 그리드 상태를 초기화
-    func initializeGridKeys() {
-        guard let cachedCircles = getAllCachedCircleData() else {
-            print("📂 초기화할 캐시 데이터가 없습니다.")
-            return
-        }
-
-        for circle in cachedCircles {
-            let gridKey = gridKey(for: circle.location)
-            markGridAsScanned(key: gridKey)
-            print("✅ 초기화된 그리드 키: \(gridKey)")
-        }
-    }
-}
-
