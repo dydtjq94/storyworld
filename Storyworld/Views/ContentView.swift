@@ -8,34 +8,45 @@
 import SwiftUI
 
 struct ContentView: View {
-    let movieService = MovieService() // MovieService 인스턴스 생성
-
     var body: some View {
         NavigationView {
             ZStack {
-                // 지도 뷰 추가
+                // MapboxMapView 추가
                 MapboxMapView()
                     .edgesIgnoringSafeArea(.all)
 
-                // Clear Cache와 Collection 이동 버튼
+                // 버튼 그룹
                 VStack {
                     Spacer() // 상단 공간 확보
                     
                     HStack {
+                        // Clear Cache 버튼
                         Button(action: {
-                            movieService.clearCache()
+                            NotificationCenter.default.post(name: .clearCacheTapped, object: nil)
                         }) {
-                            Text("Clear Cache")
+                            Text("Clear")
                                 .padding()
                                 .background(Color.black.opacity(0.7))
                                 .foregroundColor(.white)
                                 .cornerRadius(10)
                         }
 
+                        // Collection 이동 버튼
                         NavigationLink(destination: CollectionViewWrapper()) {
-                            Text("View Collection")
+                            Text("Collection")
                                 .padding()
                                 .background(Color.blue.opacity(0.7))
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+
+                        // Scan 버튼
+                        Button(action: {
+                            NotificationCenter.default.post(name: .scanButtonTapped, object: nil)
+                        }) {
+                            Text("Scan")
+                                .padding()
+                                .background(Color.green.opacity(0.7))
                                 .foregroundColor(.white)
                                 .cornerRadius(10)
                         }
@@ -54,4 +65,10 @@ struct CollectionViewWrapper: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: CollectionViewController, context: Context) {}
+}
+
+// Notification 이름 확장
+extension Notification.Name {
+    static let scanButtonTapped = Notification.Name("scanButtonTapped")
+    static let clearCacheTapped = Notification.Name("clearCacheTapped")
 }

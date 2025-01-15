@@ -12,7 +12,9 @@ import Turf
 final class MovieController {
     private let mapView: MapView
     private let movieService = MovieService()
+    private let tileManager = TileManager() // TileManager 인스턴스 추가
     private var selectedMovie: Movie? // Movie 타입으로 변경
+    
     
     init(mapView: MapView, movie: Movie? = nil) {
         self.mapView = mapView
@@ -144,7 +146,6 @@ final class MovieController {
         feedbackGenerator.impactOccurred() // Haptic 발생
         print("🔒 PRO 구독이 필요합니다.")
         // PRO 구독 안내 화면을 추가로 구현 가능
-        
     }
 
     // 200m 초과 클릭 처리 - 광고 보기 필요 메시지
@@ -156,17 +157,55 @@ final class MovieController {
         print("📢 광고 보기가 필요합니다.")
         // 광고 보기 화면을 추가로 구현 가능
     }
+    
+    func addCirclesForTiles(_ visibleTiles: [Tile], zoomLevel: Int, isScan: Bool = false) {
+        for tile in visibleTiles {
+            let tileKey = tile.toKey()
 
+            // 이미 처리된 타일인지 확인
+            if tileManager.hasProcessedTile(tile) {
+                print("⚠️ 이미 처리된 타일: \(tileKey)")
+                continue
+            }
+
+            // Circle 데이터 생성 또는 불러오기
+            let tileCenter = tileManager.centerOfTile(x: tile.x, y: tile.y, zoomLevel: zoomLevel)
+            let circleData = movieService.createCircleData(around: tileCenter)
+
+            // 레이어는 초기 위치 기반 또는 스캔 시에만 생성
+            if isScan || visibleTiles.contains(tile) {
+                print("✅ 레이어 추가 작업 - TileKey: \(tileKey)")
+                addGenreCircles(data: circleData, userLocation: tileCenter, isScan: isScan)
+            }
+
+            // 타일을 처리된 상태로 저장
+            tileManager.markTileAsProcessed(tile, circles: circleData)
+        }
+    }
+    
     /// 🎨 장르와 Rarity 기반 Circle 및 Symbol 추가
-    func addGenreCircles(data: [MovieService.CircleData], userLocation: CLLocationCoordinate2D) {
+    func addGenreCircles(data: [MovieService.CircleData], userLocation: CLLocationCoordinate2D, isScan: Bool = false) {
         for (index, item) in data.enumerated() {
             let location = item.location
+            let tile = tileManager.calculateTile(for: location, zoomLevel: 16)
 
-            // 각 CircleData에 대한 고유 ID 생성
-            let sourceId = "source-\(index)"
-            let glowLayerId = "glow-layer-\(index)"
-            let circleLayerId = "circle-layer-\(index)"
-            let symbolLayerId = "symbol-layer-\(index)"
+            if tileManager.isLayerAdded(for: tile) {
+                print("⚠️ 이미 추가된 레이어: \(tile.toKey())")
+                continue
+            }
+            
+            // ID 생성: Scan 데이터와 기존 데이터 구분
+            let prefix = isScan ? "scan-\(UUID().uuidString)-" : ""
+            let sourceId = "\(prefix)source-\(index)"
+            let glowLayerId = "\(prefix)glow-layer-\(index)"
+            let circleLayerId = "\(prefix)circle-layer-\(index)"
+            let symbolLayerId = "\(prefix)symbol-layer-\(index)"
+
+            // 기존 소스와 레이어 확인
+            if mapView.mapboxMap.sourceExists(withId: sourceId) || mapView.mapboxMap.layerExists(withId: circleLayerId) {
+                print("⚠️ 이미 존재하는 소스 또는 레이어: \(sourceId), \(circleLayerId)")
+                continue
+            }
 
             do {
                 // GeoJSONSource 생성
@@ -180,11 +219,10 @@ final class MovieController {
                 geoJSONSource.data = .feature(feature)
 
                 // Source 추가
-                if !mapView.mapboxMap.sourceExists(withId: sourceId) {
-                    try mapView.mapboxMap.addSource(geoJSONSource)
-                }
+                try mapView.mapboxMap.addSource(geoJSONSource)
+                print("✅ 소스 추가 완료: \(sourceId)")
 
-                // Glow Layer
+                // Glow Layer 설정
                 var glowLayer = CircleLayer(id: glowLayerId, source: sourceId)
                 glowLayer.circleColor = .expression(
                     Exp(.match,
@@ -211,7 +249,7 @@ final class MovieController {
                 glowLayer.circleBlur = .constant(1.0)
                 glowLayer.circleOpacity = .constant(1.0)
 
-                // Circle Layer
+                // Circle Layer 설정
                 var circleLayer = CircleLayer(id: circleLayerId, source: sourceId)
                 circleLayer.circleColor = .expression(
                     Exp(.match,
@@ -230,23 +268,28 @@ final class MovieController {
                 circleLayer.circleRadius = .constant(14.0)
                 circleLayer.circleOpacity = .constant(1.0)
 
-                // Symbol Layer
+                // Symbol Layer 설정
                 let iconName = "chim-icon"
                 if let iconImage = UIImage(named: iconName) {
                     registerIconImage(iconName: iconName, image: iconImage)
                 }
                 var symbolLayer = SymbolLayer(id: symbolLayerId, source: sourceId)
                 symbolLayer.iconImage = .constant(.name(iconName))
-                symbolLayer.iconSize = .constant(0.2)
+                symbolLayer.iconSize = .constant(1.0)
                 symbolLayer.iconAnchor = .constant(.center)
                 symbolLayer.iconAllowOverlap = .constant(true)
                 symbolLayer.iconIgnorePlacement = .constant(true)
 
-                // 레이어 추가
+                // Mapbox 지도에 레이어 추가
                 try mapView.mapboxMap.addLayer(glowLayer)
                 try mapView.mapboxMap.addLayer(circleLayer, layerPosition: .above(glowLayer.id))
                 try mapView.mapboxMap.addLayer(symbolLayer, layerPosition: .above(circleLayer.id))
 
+                print("✅ 레이어 추가 완료: \(circleLayerId), \(symbolLayerId)")
+
+                // 레이어 상태를 TileManager에 저장
+                tileManager.markLayerAsAdded(for: tile)
+                print("✅ TileManager에 레이어 상태 저장 완료: \(tile.toKey())")
             } catch {
                 print("❌ 레이어 추가 실패: \(error.localizedDescription)")
             }
@@ -259,6 +302,24 @@ final class MovieController {
             try mapView.mapboxMap.addImage(image, id: iconName)
         } catch {
             print("❌ 아이콘 이미지를 등록하는 데 실패했습니다: \(error.localizedDescription)")
+        }
+    }
+}
+
+extension MovieController {
+    func removeAllCircles() {
+        // 모든 소스 및 레이어 제거
+        let allSourceIds = mapView.mapboxMap.allSourceIdentifiers.map { $0.id }
+        let allLayerIds = mapView.mapboxMap.allLayerIdentifiers.map { $0.id }
+        
+        for sourceId in allSourceIds {
+            try? mapView.mapboxMap.removeSource(withId: sourceId)
+            print("✅ 소스 제거됨: \(sourceId)")
+        }
+
+        for layerId in allLayerIds {
+            try? mapView.mapboxMap.removeLayer(withId: layerId)
+            print("✅ 레이어 제거됨: \(layerId)")
         }
     }
 }

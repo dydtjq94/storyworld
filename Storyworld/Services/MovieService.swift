@@ -9,13 +9,13 @@ import Foundation
 import CoreLocation
 
 final class MovieService {
-    private let userDefaults = UserDefaults.standard
+    let circleCacheManager = CircleCacheManager()
     private let expirationInterval: TimeInterval = 6 * 60 * 60 // 6시간
     private let tmdbService = TMDbService(apiKey: Bundle.main.object(forInfoDictionaryKey: "TMDB_API_KEY") as! String)
-    private let maxCircleCount = 100 // 지도에 표시할 최대 Circle 개수
-    private let maxRadiusMap = 1500 // 지도에 표시할 최대 반경
+    private let maxCircleCount = 10 // 지도에 표시할 최대 Circle 개수
+    private let sideLength = 1000 // 지도에 표시할 최대 반경
+    private let tileManager = TileManager()
 
-    
     struct CircleData: Codable {
         let genre: MovieGenre
         let rarity: Rarity
@@ -49,54 +49,34 @@ final class MovieService {
         }
     }
     
-    /// 장르와 Rarity 조합을 반환 (캐싱 포함)
-    func getCircleData(userLocation: CLLocationCoordinate2D, completion: @escaping ([CircleData]) -> Void) {
-        // 캐시 확인 및 반환
-        if let cachedCircles = getCachedCircleData(), !isCacheExpired() {
-            print("✅ 캐싱된 Circle 데이터를 반환합니다.")
+    func getCircleData(userLocation: CLLocationCoordinate2D, forceUpdate: Bool = false, completion: @escaping ([CircleData]) -> Void) {
+        let radius = CLLocationDistance(sideLength)
+        let cachedCircles = circleCacheManager.getFilteredCircleData(near: userLocation, radius: radius)
+        if !forceUpdate, !cachedCircles.isEmpty {
+            print("✅ 현재 위치 기준 캐싱된 Circle 데이터를 반환합니다.")
             completion(cachedCircles)
             return
         }
 
         print("🆕 새로운 Circle 데이터를 생성합니다.")
-
-        // 장르 리스트
-        let genres: [MovieGenre] = [
-            .actionAdventure, .animation, .comedy,
-            .horrorThriller, .documentaryWar,
-            .sciFiFantasy, .drama, .romance
-        ]
-        
-        // 희귀도 확률 설정
-        let rarityProbabilities: [(Rarity, Double)] = [
-            (.common, 0.6),
-            (.uncommon, 0.3),
-            (.rare, 0.099),
-            (.epic, 0.001)
-        ]
-
+        let newCircles = createCircleData(around: userLocation)
+        circleCacheManager.appendToCache(newCircles)
+        completion(newCircles)
+    }
+    
+    
+    func createCircleData(around userLocation: CLLocationCoordinate2D) -> [CircleData] {
+        let genres: [MovieGenre] = [ .actionAdventure, .animation, .comedy, .horrorThriller, .documentaryWar, .sciFiFantasy, .drama, .romance ]
+        let rarityProbabilities: [(Rarity, Double)] = [ (.common, 0.6), (.uncommon, 0.3), (.rare, 0.099), (.epic, 0.001) ]
         var circleData: [CircleData] = []
 
-        // 최대 Circle 개수 기반으로 데이터 생성
         for _ in 0..<maxCircleCount {
-            // 랜덤 장르 선택
-            guard let randomGenre = genres.randomElement() else { continue }
-
-            // 랜덤 희귀도 선택 (확률 기반)
+            guard let randomGenre = genres.randomElement(),
+                  let randomLocation = randomCoordinateInSquare(around: userLocation, sideLength: Double(sideLength)) else { continue }
             let randomRarity = randomRarityBasedOnProbability(rarityProbabilities)
-
-            // 랜덤 좌표 생성
-            guard let randomLocation = randomCoordinateInSquare(around: userLocation, sideLength: Double(maxRadiusMap)) else { continue }
-
-            // CircleData 생성
             circleData.append(CircleData(genre: randomGenre, rarity: randomRarity, location: randomLocation))
         }
-
-        // 생성된 데이터를 캐시에 저장
-        cacheCircleData(circleData)
-
-        // 결과 반환
-        completion(circleData)
+        return circleData
     }
 
     // 확률 기반으로 희귀도 선택
@@ -117,14 +97,14 @@ final class MovieService {
     }
     
     /// TMDb에서 특정 장르와 Rarity에 따른 영화 데이터 가져오기
-    func fetchMovies(for genre: MovieGenre, rarity: Rarity, completion: @escaping (Result<[Movie], Error>) -> Void) {
+    func fetchMovies(for genre: MovieGenre, rarity: Rarity, userLocation: CLLocationCoordinate2D, completion: @escaping (Result<[Movie], Error>) -> Void) {
        let genreIds = mapGenreToGenreIds(genre)
         tmdbService.fetchMoviesByGenres(genreIds: genreIds, page: Int.random(in: 1...500)) { result in
            switch result {
            case .success(let (tmdbMovies, _)):
                let movies = tmdbMovies.compactMap { tmdbMovie -> Movie? in
                    guard let randomLocation = self.randomCoordinateInSquare(
-                       around: CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780), // 서울 중심
+                       around: userLocation, // 현재 위치를 기반으로 랜덤 좌표 생성
                        sideLength: 500
                    ) else {
                        return nil
@@ -171,11 +151,11 @@ final class MovieService {
     /// 📍 랜덤 좌표 생성 (중심 좌표에서 특정 네모난 영역 내)
     func randomCoordinateInSquare(around center: CLLocationCoordinate2D, sideLength: Double) -> CLLocationCoordinate2D? {
         let earthRadius = 6371000.0 // 지구 반경 (미터 단위)
-        let halfSide = sideLength / 2.0 // 반쪽 길이 (미터)
+        let halfSideLength = sideLength / 2.0 // 상하좌우 각각 절반 거리 (500m)
 
         // 위도 및 경도 범위 계산
-        let deltaLatitude = (halfSide / earthRadius) * (180 / .pi)
-        let deltaLongitude = (halfSide / (earthRadius * cos(center.latitude * .pi / 180))) * (180 / .pi)
+        let deltaLatitude = (halfSideLength / earthRadius) * (180 / .pi)
+        let deltaLongitude = (halfSideLength / (earthRadius * cos(center.latitude * .pi / 180))) * (180 / .pi)
 
         // 중심으로부터 랜덤한 범위 내에서 좌표 생성
         let randomLatitude = center.latitude + Double.random(in: -deltaLatitude...deltaLatitude)
@@ -184,58 +164,44 @@ final class MovieService {
         return CLLocationCoordinate2D(latitude: randomLatitude, longitude: randomLongitude)
     }
 
-    
-    /// 🗂️ Circle 데이터를 캐시에 저장
-    private func cacheCircleData(_ circleData: [CircleData]) {
-      do {
-          let encoder = JSONEncoder()
-          let data = try encoder.encode(circleData)
-          userDefaults.set(data, forKey: "cachedCircleData")
-          userDefaults.set(Date(), forKey: "circleCacheTimestamp")
-          print("✅ Circle 데이터가 캐시에 저장되었습니다.")
-      } catch {
-          print("❌ Circle 데이터를 캐시에 저장하는 데 실패했습니다: \(error.localizedDescription)")
-      }
-    }
-
-    /// 캐시된 Circle 데이터 가져오기
-    private func getCachedCircleData() -> [CircleData]? {
-        guard let data = userDefaults.data(forKey: "cachedCircleData") else {
-            print("❌ 캐시에 저장된 Circle 데이터가 없습니다.")
-            return nil
-        }
-        do {
-            let decoder = JSONDecoder()
-            let circleData = try decoder.decode([CircleData].self, from: data)
-            print("✅ 캐시된 Circle 데이터를 불러왔습니다") // 불러온 데이터 출력
-            return circleData
-        } catch {
-            print("❌ 캐시된 Circle 데이터를 불러오는 데 실패했습니다: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-
-    /// ⏳ 캐시 만료 여부 확인
-    private func isCacheExpired() -> Bool {
-      guard let timestamp = userDefaults.object(forKey: "circleCacheTimestamp") as? Date else { return true }
-      let elapsedTime = Date().timeIntervalSince(timestamp)
-      print("⏱️ 캐시 경과 시간: \(elapsedTime)초")
-      return elapsedTime > expirationInterval
-    }
-
-    
+    /// 캐시 초기화
     func clearCache() {
-        userDefaults.removeObject(forKey: "cachedCircleData")
-        userDefaults.removeObject(forKey: "circleCacheTimestamp")
-        print("✅ 캐시가 성공적으로 삭제되었습니다.")
+        circleCacheManager.clearCache()
+    }
+    
+    init() {
+        // 앱 실행 시 기존 캐시 데이터를 기반으로 그리드 키 초기화
+        circleCacheManager.initializeGridKeys()
+    }
+    
+    func createFilteredCircleData(visibleTiles: [Tile], zoomLevel: Int, tileManager: TileManager) -> [MovieService.CircleData] {
+        var filteredCircles: [MovieService.CircleData] = []
+        let genres: [MovieGenre] = [.actionAdventure, .animation, .comedy, .horrorThriller, .documentaryWar, .sciFiFantasy, .drama, .romance]
+        let rarityProbabilities: [(Rarity, Double)] = [(.common, 0.6), (.uncommon, 0.3), (.rare, 0.099), (.epic, 0.001)]
 
-        // 디버깅: 캐시 확인
-        if userDefaults.data(forKey: "cachedCircleData") == nil,
-           userDefaults.object(forKey: "circleCacheTimestamp") == nil {
-            print("✅ 모든 캐시 데이터가 삭제되었습니다.")
-        } else {
-            print("❌ 캐시 데이터 삭제 실패. 여전히 데이터가 존재합니다.")
+        for tile in visibleTiles {
+            if let cachedCircles = tileManager.tileCircleData[tile.toKey()] {
+                print("📂 기존 Circle 데이터 사용 - Tile: \(tile), Circle 수: \(cachedCircles.count)")
+                filteredCircles.append(contentsOf: cachedCircles)
+                continue
+            }
+
+            print("🆕 새로운 Circle 데이터 생성 중 - Tile: \(tile)")
+
+            let tileCenter = tileManager.centerOfTile(x: tile.x, y: tile.y, zoomLevel: zoomLevel)
+            guard let randomGenre = genres.randomElement() else {
+                print("❌ 랜덤 장르 생성 실패")
+                continue
+            }
+
+            let randomRarity = randomRarityBasedOnProbability(rarityProbabilities)
+            let circle = MovieService.CircleData(genre: randomGenre, rarity: randomRarity, location: tileCenter)
+
+            tileManager.markTileAsProcessed(tile, circles: [circle])
+            filteredCircles.append(circle)
         }
+
+        print("✅ 총 \(filteredCircles.count)개의 Circle 데이터 생성 완료")
+        return filteredCircles
     }
 }

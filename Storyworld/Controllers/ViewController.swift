@@ -13,22 +13,41 @@ import Turf
 final class ViewController: UIViewController, CLLocationManagerDelegate {
     private var mapView: MapView!
     private let locationManager = CLLocationManager()
-    private let initialZoom: Double = 15.5 // 지도에 표시할 최대 반경
+    private let initialZoom: Double = 15.0 // 지도에 표시할 최대 반경
 
     private var sourceId = "circle-source"
     private var smallCircleLayerId = "small-circle-layer"
     private var largeCircleLayerId = "large-circle-layer"
     private let movieService = MovieService() // 추가
     private var movieController: MovieController?
+    private let tileManager = TileManager()
+    private var isLocationPermissionHandled = false // 권한 처리 여부 확인 변수
     private var isMovieDataLoaded = false // 영화 데이터 로드 여부 추가
     
     private var lastBackgroundTime: Date? // 마지막 백그라운드 전환 시각
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        tileManager.resetLayerStates() // 모든 레이어 상태 초기화
         setupMapView()
         setupLocationManager()
-        setupNotifications() // 추가된 기능: Notification 설정
+        setupNotifications()
+
+        // 내 위치 중심으로 레이어 다시 그림
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.renderInitialLayers()
+        }
+    }
+    
+    private func renderInitialLayers() {
+        guard let latestLocation = mapView.location.latestLocation else {
+            print("⚠️ 사용자 위치를 가져올 수 없습니다.")
+            return
+        }
+
+        let userLocation = latestLocation.coordinate
+        print("📍 초기 사용자 위치: \(userLocation.latitude), \(userLocation.longitude)")
+        fetchCircleData(centerCoordinate: userLocation, zoomLevel: 16)
     }
 
     // MARK: - MapView 설정
@@ -53,10 +72,10 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         
         // ✅ MovieController 초기화
         movieController = MovieController(mapView: mapView)
-
-        // ✅ 스타일 로드 핸들링
-        handleStyleLoadedEvent()
         
+        
+        handleStyleLoadedEvent()
+
         // ✅ MapView를 뷰에 추가
         view.addSubview(mapView)
     }
@@ -75,6 +94,23 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             name: UIApplication.didEnterBackgroundNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScanButtonTapped),
+            name: .scanButtonTapped,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleClearCacheTapped),
+            name: .clearCacheTapped,
+            object: nil
+        )
+    }
+
+    @objc private func handleClearCacheTapped() {
+        movieService.clearCache()
+        print("✅ 캐시가 성공적으로 삭제되었습니다.")
     }
     
     // MARK: - 앱이 포그라운드로 돌아왔을 때
@@ -118,6 +154,34 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         mapView.location.options.puckBearing = .heading
         print("✅ 사용자 위치 표시 설정 완료")
     }
+    
+    
+    // Handle Scan Button Tapped
+    @objc private func handleScanButtonTapped() {
+        performZoom(to: 16.0) { [weak self] in
+            guard let self = self else { return }
+
+            let centerCoordinate = self.mapView.mapboxMap.cameraState.center
+            self.fetchCircleData(centerCoordinate: centerCoordinate, zoomLevel: 16)
+
+            self.performZoom(to: 15.0) {
+                print("✅ Zoom 레벨이 15.0으로 복구되었습니다.")
+            }
+        }
+    }
+    
+    // Zoom 설정 및 복구를 함께 처리
+    private func performZoom(to zoomLevel: Double, completion: @escaping () -> Void) {
+        // Zoom 설정 (애니메이션 포함)
+        mapView.camera.ease(
+            to: CameraOptions(zoom: zoomLevel),
+            duration: 1.0, // 애니메이션 시간
+            curve: .easeInOut
+        ) { _ in
+            print("✅ Zoom 레벨이 \(zoomLevel)으로 설정되었습니다.")
+            completion() // 줌 레벨 변경이 완료된 후 작업 수행
+        }
+    }
 
 
     private var styleLoadedCancelable: AnyCancelable? // Cancelable 객체 저장용 변수
@@ -126,32 +190,54 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         styleLoadedCancelable = mapView.mapboxMap.onStyleLoaded.observe { [weak self] _ in
             guard let self = self else { return }
 
-            // 사용자 위치 가져오기
-            let coordinate = self.mapView.location.latestLocation?.coordinate
+            // 사용자 위치 가져오기 (초기 위치)
+            let userLocation = self.mapView.location.latestLocation?.coordinate
                 ?? CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780) // 기본 위치: 서울
 
             // 초기 카메라 설정
-            self.setInitialCamera(to: coordinate)
-            print("🛠️ 스타일 로드 완료, 초기 카메라 설정 - \(coordinate.latitude), \(coordinate.longitude)")
+            self.setInitialCamera(to: userLocation)
+            print("🛠️ 스타일 로드 완료, 초기 카메라 설정 - \(userLocation.latitude), \(userLocation.longitude)")
 
             // 원 추가
-            self.addCircleLayers(at: coordinate)
+            self.addCircleLayers(at: userLocation)
 
-            // 영화 데이터 로드 및 지도에 추가
-            if let movieController = self.movieController {
-                movieService.getCircleData(userLocation: coordinate) { circleData in
-                    // CircleData 배열을 MovieController에 전달
-                    movieController.addGenreCircles(data: circleData, userLocation: coordinate)
-                    
-                    self.reloadLocationPuck() // Puck 재배치
-                }
-            } else {
-                print("⚠️ MovieController가 초기화되지 않았습니다.")
-            }
-        
+            // 초기 데이터를 현재 위치 중심으로 가져오기
+            self.fetchCircleData(centerCoordinate: userLocation, zoomLevel: 16)
+            
+            // Puck 재배치
+            self.reloadLocationPuck()
         }
     }
     
+    private func fetchCircleData(centerCoordinate: CLLocationCoordinate2D, zoomLevel: Int) {
+        let sideLength = 1000.0 // 1,000m 범위
+        let visibleTiles = tileManager.tilesInRange(center: centerCoordinate, sideLength: sideLength, zoomLevel: zoomLevel)
+
+        print("📍 현재 보이는 타일: \(visibleTiles.count)")
+        print("📍 타일 리스트: \(visibleTiles)")
+
+        visibleTiles.forEach { tile in
+            if let circles = tileManager.getCircleData(for: tile) {
+                // 저장된 Circle 데이터가 있으면 레이어 추가
+                if !tileManager.isLayerAdded(for: tile) {
+                    movieController?.addGenreCircles(data: circles, userLocation: centerCoordinate, isScan: true)
+                    tileManager.markLayerAsAdded(for: tile)
+                    print("✅ 기존 데이터를 기반으로 레이어 추가 완료 - Tile: \(tile.toKey())")
+                }
+            } else {
+                // Circle 데이터가 없으면 새로 생성
+                let newCircles = movieService.createCircleData(
+                    around: tileManager.centerOfTile(x: tile.x, y: tile.y, zoomLevel: tile.z)
+                )
+                tileManager.saveCircleData(for: tile, circles: newCircles)
+                movieController?.addGenreCircles(data: newCircles, userLocation: centerCoordinate, isScan: true)
+                tileManager.markLayerAsAdded(for: tile)
+                print("🆕 새 데이터를 생성하고 레이어 추가 완료 - Tile: \(tile.toKey())")
+            }
+        }
+
+        print("✅ Circle 데이터 처리가 완료되었습니다.")
+    }
     private func reloadLocationPuck() {
         // 현재 Puck을 비활성화
         mapView.location.options.puckType = nil
@@ -216,19 +302,66 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         locationManager.distanceFilter = 5 // 하드웨어 필터링 (5m)
         locationManager.startUpdatingLocation()
     }
+    
+    // 위치 권한 변경 시 호출
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+       guard !isLocationPermissionHandled else { return }
+       isLocationPermissionHandled = true
+
+       let status = manager.authorizationStatus
+       switch status {
+       case .authorizedWhenInUse, .authorizedAlways:
+           print("✅ 위치 권한 허용됨.")
+           locationManager.startUpdatingLocation() // 위치 업데이트 시작
+           loadCachedCirclesOrFetch()
+       case .denied, .restricted:
+           print("❌ 위치 권한 거부됨.")
+           showDefaultMovieCircles() // 기본 위치에 Circle 추가
+       case .notDetermined:
+           print("❓ 위치 권한 결정되지 않음.")
+       @unknown default:
+           print("⚠️ 알 수 없는 위치 권한 상태.")
+       }
+    }
+    
+    private func loadCachedCirclesOrFetch() {
+        guard let userLocation = locationManager.location?.coordinate else {
+            print("⚠️ 사용자 위치를 가져올 수 없습니다.")
+            return
+        }
+
+        movieService.getCircleData(userLocation: userLocation) { [weak self] circleData in
+            guard let self = self else { return }
+
+            // 초기 데이터를 생성하면서 그리드 관리 적용
+            for circle in circleData {
+                let gridKey = self.movieService.circleCacheManager.gridKey(for: circle.location)
+                self.movieService.circleCacheManager.markGridAsScanned(key: gridKey)
+            }
+
+            self.movieController?.addGenreCircles(data: circleData, userLocation: userLocation)
+        }
+    }
+    
+    private func showDefaultMovieCircles() {
+        let defaultLocation = CLLocationCoordinate2D(latitude: 37.5665, longitude: 126.9780) // 서울 중심
+        movieService.getCircleData(userLocation: defaultLocation) { [weak self] circleData in
+            guard let self = self, let movieController = self.movieController else { return }
+            movieController.addGenreCircles(data: circleData, userLocation: defaultLocation)
+        }
+    }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let userLocation = locations.last else { return }
-        
-        if !isInitialCameraSet {
-            // 초기 카메라 설정 및 원 추가
-            setInitialCamera(to: userLocation.coordinate)
-            addCircleLayers(at: userLocation.coordinate)
-            isInitialCameraSet = true
-            lastUpdatedLocation = userLocation
-            print("🛠️ 초기 카메라 위치 설정 완료 - 중심: \(userLocation.coordinate.latitude), \(userLocation.coordinate.longitude)")
-            return
-        }
+//        
+//        if !isInitialCameraSet {
+//            // 초기 카메라 설정 및 원 추가
+//            setInitialCamera(to: userLocation.coordinate)
+//            isInitialCameraSet = true
+//            lastUpdatedLocation = userLocation
+//            print("🛠️ 초기 카메라 위치 설정 완료 - 중심: \(userLocation.coordinate.latitude), \(userLocation.coordinate.longitude)")
+//            return
+//        }
         
         // 소프트웨어 수준 필터링
         if let lastLocation = lastUpdatedLocation {
@@ -271,7 +404,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             // 작은 원 (50m)
             let smallCircleSourceId = "small-circle-source"
             var smallCircleSource = GeoJSONSource(id: smallCircleSourceId)
-            smallCircleSource.data = .feature(createCirclePolygon(center: coordinate, radius: 50))
+            smallCircleSource.data = .feature(createCirclePolygon(center: coordinate, radius: 40))
             
             if !mapView.mapboxMap.sourceExists(withId: smallCircleSourceId) {
                 try mapView.mapboxMap.addSource(smallCircleSource)
@@ -288,7 +421,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             // 큰 원 (200m)
             let largeCircleSourceId = "large-circle-source"
             var largeCircleSource = GeoJSONSource(id: largeCircleSourceId)
-            largeCircleSource.data = .feature(createCirclePolygon(center: coordinate, radius: 200))
+            largeCircleSource.data = .feature(createCirclePolygon(center: coordinate, radius: 160))
             
             if !mapView.mapboxMap.sourceExists(withId: largeCircleSourceId) {
                 try mapView.mapboxMap.addSource(largeCircleSource)
@@ -308,7 +441,6 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             print("❌ 원 추가 실패: \(error.localizedDescription)")
         }
     }
-
     
     func updateCircleLayers(with coordinate: CLLocationCoordinate2D) {
         let smallCircleSourceId = "small-circle-source"
@@ -331,7 +463,5 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         print("✅ 원 위치가 성공적으로 업데이트되었습니다.")
 
     }
-    
-    
     
 }
