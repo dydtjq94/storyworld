@@ -15,8 +15,6 @@ final class LocationCircleManager {
     private let largeCircleLayerId = "large-circle-layer"
     private let smallCircleSourceId = "small-circle-source"
     private let largeCircleSourceId = "large-circle-source"
-    private let smallCircleRadius: Double = 50
-    private let largeCircleRadius: Double = 200
 
     // MARK: - Circle Polygon 생성
     func createCirclePolygon(center: CLLocationCoordinate2D, radius: Double) -> Feature {
@@ -42,7 +40,7 @@ final class LocationCircleManager {
         do {
             // 작은 원 (50m)
             var smallCircleSource = GeoJSONSource(id: smallCircleSourceId)
-            smallCircleSource.data = .feature(createCirclePolygon(center: coordinate, radius: smallCircleRadius))
+            smallCircleSource.data = .feature(createCirclePolygon(center: coordinate, radius: Constants.Numbers.smallCircleRadius))
             
             if !mapView.mapboxMap.sourceExists(withId: smallCircleSourceId) {
                 try mapView.mapboxMap.addSource(smallCircleSource)
@@ -57,7 +55,7 @@ final class LocationCircleManager {
 
             // 큰 원 (200m)
             var largeCircleSource = GeoJSONSource(id: largeCircleSourceId)
-            largeCircleSource.data = .feature(createCirclePolygon(center: coordinate, radius: largeCircleRadius))
+            largeCircleSource.data = .feature(createCirclePolygon(center: coordinate, radius: Constants.Numbers.largeCircleRadius))
 
             if !mapView.mapboxMap.sourceExists(withId: largeCircleSourceId) {
                 try mapView.mapboxMap.addSource(largeCircleSource)
@@ -78,13 +76,13 @@ final class LocationCircleManager {
 
     // MARK: - Circle Layer 업데이트
     func updateCircleLayers(for mapView: MapView, at coordinate: CLLocationCoordinate2D) {
-        let smallCircleFeature = createCirclePolygon(center: coordinate, radius: smallCircleRadius)
+        let smallCircleFeature = createCirclePolygon(center: coordinate, radius: Constants.Numbers.smallCircleRadius)
         mapView.mapboxMap.updateGeoJSONSource(
             withId: smallCircleSourceId,
             geoJSON: .feature(smallCircleFeature)
         )
 
-        let largeCircleFeature = createCirclePolygon(center: coordinate, radius: largeCircleRadius)
+        let largeCircleFeature = createCirclePolygon(center: coordinate, radius: Constants.Numbers.largeCircleRadius)
         mapView.mapboxMap.updateGeoJSONSource(
             withId: largeCircleSourceId,
             geoJSON: .feature(largeCircleFeature)

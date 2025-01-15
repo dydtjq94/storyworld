@@ -65,7 +65,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         
         // ✅ MapInitOptions 초기화
         let mapInitOptions = MapInitOptions(
-            cameraOptions: CameraOptions(zoom: 15.0),
+            cameraOptions: CameraOptions(zoom: Constants.Numbers.defaultZoomLevel),
             styleURI: .dark // 🌙 다크 모드 적용
         )
         
@@ -91,7 +91,9 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
     
     // Handle Scan Button Tapped
     @objc private func handleScanButtonTapped() {
-        performZoom(to: 16.0) { [weak self] in
+        let firstZoom = Constants.Numbers.firstZoom
+        let finalZoom = Constants.Numbers.finalZoom
+        performZoom(to: firstZoom) { [weak self] in
         guard let self = self else { return }
 
         let centerCoordinate = self.mapView.mapboxMap.cameraState.center
@@ -101,6 +103,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
 
         print("📍 현재 보이는 타일: \(visibleTiles.count)")
         print("📍 타일 리스트: \(visibleTiles)")
+        
         // 타일 데이터 비어 있는지 확인
         for tile in visibleTiles {
             if let tileInfo = tileService.getTileInfo(for: tile) {
@@ -126,7 +129,7 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
            reloadLocationPuck()
 
             // 작업 완료 후 줌 레벨 복구
-            self.performZoom(to: 15.0) {
+            self.performZoom(to: finalZoom) {
                 print("✅ Zoom 레벨이 15.0으로 복구되었습니다.")
             }
         }
@@ -144,7 +147,6 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             completion() // 줌 레벨 변경이 완료된 후 작업 수행
         }
     }
-
     @objc private func handleClearCacheTapped() {
         tileCacheManager.clearCache()
     }

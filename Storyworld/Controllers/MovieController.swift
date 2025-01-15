@@ -68,9 +68,9 @@ final class MovieController {
         let userLocationCL = CLLocation(latitude: userLocation.latitude, longitude: userLocation.longitude)
         let distance = userLocationCL.distance(from: circleLocation)
 
-        if distance <= 200 {
+        if distance <= Constants.Numbers.smallCircleRadius {
             handleDropWithin50m(movieGenre: movieGenre, rarity: rarity, selectedGenreId: selectedGenreId)
-        } else if distance <= 500 {
+        } else if distance <= Constants.Numbers.largeCircleRadius {
             uiManager.showProSubscriptionMessage()
         } else {
             uiManager.showAdMessage()

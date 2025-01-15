@@ -22,7 +22,7 @@ final class MovieLayerMapManager {
             let location = item.location
 
             // 타일 정보 기반 고유 ID 생성
-            let tile = tileManager.calculateTile(for: location, zoomLevel: 18)
+            let tile = tileManager.calculateTile(for: location, zoomLevel: Int(Constants.Numbers.searchFixedZoomLevel))
             let tileKey = tile.toKey()
             
             let prefix = isScan ? "scan-\(UUID().uuidString)-" : ""

@@ -47,10 +47,9 @@ final class MovieService {
     func createFilteredCircleData(visibleTiles: [Tile], tileManager: TileManager) -> [MovieService.CircleData] {
         var filteredCircles: [MovieService.CircleData] = []
         let genres: [MovieGenre] = [.actionAdventure, .animation, .comedy, .horrorThriller, .documentaryWar, .sciFiFantasy, .drama, .romance]
-        let rarityProbabilities: [(Rarity, Double)] = [(.common, 0.6), (.uncommon, 0.3), (.rare, 0.099), (.epic, 0.001)]
-        
+        let rarityProbabilities: [(Rarity, Double)] = Rarity.allCases.map { ($0, $0.probability) }
         // 고정된 Zoom Level과 Length
-        let fixedZoomLevel = 18
+        let fixedZoomLevel = Constants.Numbers.searchFixedZoomLevel
 
         for tile in visibleTiles {
             if let randomLocation = randomCoordinateInTile(tile: tile, zoomLevel: Double(fixedZoomLevel)) {
@@ -71,48 +70,16 @@ final class MovieService {
         print("✅ 총 \(filteredCircles.count)개의 Circle 데이터 생성 완료")
         return filteredCircles
     }
-
-    // 확률 기반으로 희귀도 선택
-    private func randomRarityBasedOnProbability(_ probabilities: [(Rarity, Double)]) -> Rarity {
-        let totalProbability = probabilities.reduce(0) { $0 + $1.1 }
-        let randomValue = Double.random(in: 0...totalProbability)
-        
-        var cumulativeProbability: Double = 0
-        for (rarity, probability) in probabilities {
-            cumulativeProbability += probability
-            if randomValue <= cumulativeProbability {
-                return rarity
-            }
-        }
-        
-        // 기본값 반환 (논리적으로 이곳에 도달하지 않음)
-        return .common
-    }
-    
-    /// 장르를 TMDb API의 Genre IDs로 매핑
-    private func mapGenreToGenreIds(_ genre: MovieGenre) -> [Int] {
-        switch genre {
-        case .actionAdventure:
-            return [28, 12, 37] // 액션, 모험, 서부
-        case .animation:
-            return [16] // 애니메이션
-        case .comedy:
-            return [35] // 코미디
-        case .horrorThriller:
-            return [80, 27, 53, 9648] // 범죄, 공포, 스릴러, 미스터리
-        case .documentaryWar:
-            return [99, 36, 10752] // 다큐멘터리, 역사, 전쟁
-        case .sciFiFantasy:
-            return [14, 878] // 판타지, SF
-        case .drama:
-            return [18, 10770, 10402, 10751] // 드라마, TV 영화, 음악, 가족
-        case .romance:
-            return [10749] // 로맨스
-        }
-    }
     
     /// 📍 랜덤 좌표 생성 (타일 내)
     func randomCoordinateInTile(tile: Tile, zoomLevel: Double) -> CLLocationCoordinate2D? {
+        // 80% 확률로 좌표 생성
+        let probability = Constants.Numbers.probability
+        guard Double.random(in: 0...1) <= probability else {
+            print("❌ 랜덤 좌표 생성 실패 (확률 조건 미충족)")
+            return nil
+        }
+
         let n = pow(2.0, zoomLevel) // 줌 레벨에 따른 타일 개수
 
         // 타일의 경도 범위 계산
@@ -129,5 +96,22 @@ final class MovieService {
         let randomLon = Double.random(in: tileMinLon...tileMaxLon)
 
         return CLLocationCoordinate2D(latitude: randomLat, longitude: randomLon)
+    }
+
+    // 확률 기반으로 희귀도 선택
+    private func randomRarityBasedOnProbability(_ probabilities: [(Rarity, Double)]) -> Rarity {
+        let totalProbability = probabilities.reduce(0) { $0 + $1.1 }
+        let randomValue = Double.random(in: 0...totalProbability)
+        
+        var cumulativeProbability: Double = 0
+        for (rarity, probability) in probabilities {
+            cumulativeProbability += probability
+            if randomValue <= cumulativeProbability {
+                return rarity
+            }
+        }
+        
+        // 기본값 반환 (논리적으로 이곳에 도달하지 않음)
+        return .common
     }
 }

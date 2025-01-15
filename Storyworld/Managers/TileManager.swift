@@ -39,8 +39,8 @@ final class TileManager {
     
     /// 특정 줌 레벨에서 중심 좌표 기준으로 가로 세로 1,000m 범위 내 타일 계산
     func tilesInRange(center: CLLocationCoordinate2D) -> [Tile] {
-        let fixedZoomLevel = 18 // 고정된 줌 레벨
-        let fixedSideLength = 1240.0 // 고정된 길이 (m)
+        let fixedZoomLevel = Constants.Numbers.searchFixedZoomLevel // 고정된 줌 레벨
+        let fixedSideLength = Constants.Numbers.searchFixedSideLength // 고정된 길이 (m)
 
         let tileSize = metersPerTile(at: Double(fixedZoomLevel)) // 타일 크기 계산
         let halfSideLength = fixedSideLength / 2.0
@@ -49,7 +49,7 @@ final class TileManager {
         print("📏 타일 크기: \(tileSize)m, 탐색 델타: \(delta)칸")
 
         // 중심 타일 계산
-        let centerTile = calculateTile(for: center, zoomLevel: fixedZoomLevel)
+        let centerTile = calculateTile(for: center, zoomLevel: Int(fixedZoomLevel))
 
         // 타일 탐색 범위 계산
         var tilesInRange: [Tile] = []
@@ -57,7 +57,7 @@ final class TileManager {
 
         for x in max(0, centerTile.x - delta)...min(n - 1, centerTile.x + delta) {
             for y in max(0, centerTile.y - delta)...min(n - 1, centerTile.y + delta) {
-                tilesInRange.append(Tile(x: x, y: y, z: fixedZoomLevel))
+                tilesInRange.append(Tile(x: x, y: y, z: Int(fixedZoomLevel)))
             }
         }
 

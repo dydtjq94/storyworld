@@ -52,7 +52,7 @@ final class MapStyleManager {
 
     /// 사용자 정의 스타일 적용
     func applyCustomStyle(from styleURI: StyleURI, completion: (() -> Void)? = nil) {
-        mapView.mapboxMap.loadStyleURI(styleURI) { error in
+        mapView.mapboxMap.loadStyle(styleURI) { error in
             if let error = error {
                 print("❌ 스타일 적용 실패: \(error.localizedDescription)")
             } else {
