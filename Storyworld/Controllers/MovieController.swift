@@ -12,7 +12,6 @@ import Turf
 final class MovieController {
     private let mapView: MapView
     private let movieService = MovieService()
-    private let tileManager = TileManager()
     let layerManager: MovieLayerMapManager
     private var gestureManager: GestureManager!
     private var selectedMovie: Movie?
@@ -93,31 +92,5 @@ final class MovieController {
 
         let tmdbService = TMDbService(apiKey: apiKey)
         uiManager.presentDropController(genre: movieGenre, selectedGenreId: selectedGenreId, rarity: rarity, tmdbService: tmdbService)
-    }
-    
-    func addCirclesForTiles(_ visibleTiles: [Tile], zoomLevel: Int, isScan: Bool = false) {
-        for tile in visibleTiles {
-            let tileKey = tile.toKey()
-
-            if tileManager.hasProcessedTile(tile) {
-                print("⚠️ 이미 처리된 타일: \(tileKey)")
-                continue
-            }
-
-            var circleData: [MovieService.CircleData]
-            if let cachedData = tileManager.tileCircleData[tileKey] {
-                circleData = cachedData
-            } else {
-                let tileCenter = tileManager.centerOfTile(x: tile.x, y: tile.y, zoomLevel: zoomLevel)
-                circleData = movieService.createCircleData(around: tileCenter)
-                tileManager.saveCircleData(for: tile, circles: circleData)
-            }
-
-            if isScan || visibleTiles.contains(tile) {
-                layerManager.addGenreCircles(data: circleData, userLocation: tileManager.centerOfTile(x: tile.x, y: tile.y, zoomLevel: zoomLevel))
-            }
-
-            tileManager.markTileAsProcessed(tile, circles: circleData)
-        }
     }
 }

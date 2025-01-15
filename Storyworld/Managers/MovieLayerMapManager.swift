@@ -93,7 +93,7 @@ final class MovieLayerMapManager {
                         StyleColor(UIColor.gray).rawValue // 기본값
                     )
                 )
-                circleLayer.circleRadius = .constant(14.0)
+                circleLayer.circleRadius = .constant(16.0)
                 circleLayer.circleOpacity = .constant(1.0)
 
                 // Symbol Layer 설정
@@ -103,7 +103,7 @@ final class MovieLayerMapManager {
                 }
                 var symbolLayer = SymbolLayer(id: symbolLayerId, source: sourceId)
                 symbolLayer.iconImage = .constant(.name(iconName))
-                symbolLayer.iconSize = .constant(1.0)
+                symbolLayer.iconSize = .constant(1.2)
                 symbolLayer.iconAnchor = .constant(.center)
                 symbolLayer.iconAllowOverlap = .constant(true)
                 symbolLayer.iconIgnorePlacement = .constant(true)

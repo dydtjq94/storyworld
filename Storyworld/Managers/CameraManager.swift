@@ -13,7 +13,7 @@ final class CameraManager {
     private let defaultZoomLevel: Double
 
     // MARK: - Initializer
-    init(mapView: MapView, defaultZoom: Double = 15.0) {
+    init(mapView: MapView, defaultZoom: Double = 15.2) {
         self.mapView = mapView
         self.defaultZoomLevel = defaultZoom
     }

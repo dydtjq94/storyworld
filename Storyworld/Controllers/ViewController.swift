@@ -91,13 +91,10 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
     @objc private func handleScanButtonTapped() {
         cameraManager?.setZoomLevel(to: 16.0) { [weak self] in
             guard let self = self else { return }
-
             let centerCoordinate = self.mapView.mapboxMap.cameraState.center
-            let zoomLevel = 16 // 스캔 작업에 사용할 줌 레벨
-            let sideLength = 1000.0 // 스캔 반경 (1,000m)
 
             // 타일 계산
-            let visibleTiles = self.tileManager.tilesInRange(center: centerCoordinate, sideLength: sideLength, zoomLevel: zoomLevel)
+            let visibleTiles = self.tileManager.tilesInRange(center: centerCoordinate)
 
             print("📍 현재 보이는 타일: \(visibleTiles.count)")
             print("📍 타일 리스트: \(visibleTiles)")
@@ -105,7 +102,6 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             // Circle 데이터 생성 및 필터링
             let filteredCircles = self.movieService.createFilteredCircleData(
               visibleTiles: visibleTiles,
-              zoomLevel: zoomLevel,
               tileManager: self.tileManager
             )
 
@@ -140,8 +136,8 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
         let timeInBackground = Date().timeIntervalSince(lastBackgroundTime)
 
         // 30초 이상 백그라운드에 있었다면 현재 위치로 이동
-        if timeInBackground > 60 {
-            print("🔄 앱이 60초 이상 백그라운드에 있었습니다. 현재 위치로 화면 이동.")
+        if timeInBackground > 30 {
+            print("🔄 앱이 30초 이상 백그라운드에 있었습니다. 현재 위치로 화면 이동.")
             moveCameraToCurrentLocation()
         }
     }
@@ -182,11 +178,14 @@ final class ViewController: UIViewController, CLLocationManagerDelegate {
             // 원 추가
             self.locationCircleManager.addCircleLayers(to: self.mapView, at: coordinate)
 
-            // 영화 데이터 로드 및 지도에 추가
+            // 지도에 표시할 타일을 기반으로 필터링된 Circle 데이터를 생성하고 지도에 추가
             if let movieController = self.movieController {
-                movieService.getCircleData(userLocation: coordinate) { circleData in
-                    movieController.layerManager.addGenreCircles(data: circleData, userLocation: coordinate)
-                }
+                // 현재 보이는 타일 및 줌 레벨 정보
+                let visibleTiles = tileManager.tilesInRange(center: coordinate) // 줌 레벨은 적절히 설정
+                let filteredCircleData = movieService.createFilteredCircleData(visibleTiles: visibleTiles,  tileManager: tileManager)
+
+                // 필터링된 Circle 데이터를 지도에 추가
+                movieController.layerManager.addGenreCircles(data: filteredCircleData, userLocation: coordinate)
             } else {
                 print("⚠️ MovieController가 초기화되지 않았습니다.")
             }
